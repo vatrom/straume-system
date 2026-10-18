@@ -395,6 +395,7 @@ function finish(
           })),
   }));
   sortBuckets(buckets, spec.groupBy);
+  const shown = usedMeasure === "avg" ? buckets : fillTimeGaps(buckets, spec.groupBy);
   const allValues = [...groups.values()].flatMap((row) => row.values);
   const total = round(aggregate(allValues, usedMeasure));
   const compareBuckets = compare
@@ -413,9 +414,65 @@ function finish(
     compareTotal,
     delta: compareTotal == null || compareTotal === 0 ? null : round(((total - compareTotal) / compareTotal) * 100),
     dealIds,
-    buckets,
+    buckets: shown,
     compareBuckets,
   };
+}
+
+function fillTimeGaps(buckets: InsightBucket[], groupBy: GroupBy): InsightBucket[] {
+  if (groupBy !== "month" && groupBy !== "quarter" && groupBy !== "year") return buckets;
+  const timed = buckets.filter((bucket) => bucket.key !== "uten-dato");
+  if (timed.length < 2) return buckets;
+  const byKey = new Map(timed.map((bucket) => [bucket.key, bucket]));
+  const first = timed[0]?.key;
+  const last = timed[timed.length - 1]?.key;
+  if (!first || !last) return buckets;
+  const filled = keysBetween(first, last, groupBy).map(
+    (key) => byKey.get(key) ?? { key, label: labelForTimeKey(key, groupBy), value: 0, dealIds: [] },
+  );
+  return [...filled, ...buckets.filter((bucket) => bucket.key === "uten-dato")];
+}
+
+function keysBetween(first: string, last: string, groupBy: GroupBy): string[] {
+  const keys: string[] = [];
+  if (groupBy === "year") {
+    for (let year = Number(first); year <= Number(last); year += 1) keys.push(String(year));
+    return keys;
+  }
+  if (groupBy === "quarter") {
+    let [year, quarter] = first.split("-Q").map(Number) as [number, number];
+    const [endYear, endQuarter] = last.split("-Q").map(Number) as [number, number];
+    while (year < endYear || (year === endYear && quarter <= endQuarter)) {
+      keys.push(`${year}-Q${quarter}`);
+      quarter += 1;
+      if (quarter > 4) {
+        quarter = 1;
+        year += 1;
+      }
+    }
+    return keys;
+  }
+  let [year, month] = first.split("-").map(Number) as [number, number];
+  const [endYear, endMonth] = last.split("-").map(Number) as [number, number];
+  while (year < endYear || (year === endYear && month <= endMonth)) {
+    keys.push(`${year}-${String(month).padStart(2, "0")}`);
+    month += 1;
+    if (month > 12) {
+      month = 1;
+      year += 1;
+    }
+  }
+  return keys;
+}
+
+function labelForTimeKey(key: string, groupBy: GroupBy): string {
+  if (groupBy === "year") return key;
+  if (groupBy === "quarter") {
+    const [year, quarter] = key.split("-Q");
+    return `${year} K${quarter}`;
+  }
+  const [year, month] = key.split("-").map(Number) as [number, number];
+  return new Date(Date.UTC(year, month - 1, 1)).toLocaleDateString("nb-NO", { month: "short", year: "numeric", timeZone: "UTC" });
 }
 
 function funnelReport(

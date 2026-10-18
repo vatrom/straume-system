@@ -206,6 +206,29 @@ export async function ensureInsights(prisma: PrismaClient) {
     });
   }
 
+  const horizon = new Date();
+  const late = await prisma.deal.findMany({
+    where: { title: { startsWith: "Fiktivbad " }, OR: [{ wonAt: { gt: horizon } }, { lostAt: { gt: horizon } }] },
+    select: { id: true, wonAt: true, lostAt: true },
+  });
+  for (const deal of late) {
+    await prisma.deal.update({
+      where: { id: deal.id },
+      data: {
+        wonAt: deal.wonAt && deal.wonAt > horizon ? horizon : deal.wonAt,
+        lostAt: deal.lostAt && deal.lostAt > horizon ? horizon : deal.lostAt,
+      },
+    });
+  }
+  await prisma.dealStageEvent.updateMany({
+    where: { at: { gt: horizon }, deal: { title: { startsWith: "Fiktivbad " } } },
+    data: { at: horizon },
+  });
+  await prisma.activity.updateMany({
+    where: { dueAt: { gt: horizon }, subject: "Oppfølging av fiktivt bad" },
+    data: { dueAt: horizon },
+  });
+
   const goals = [
     { id: id(1, "54000000"), ownerId: null, metric: "sum", target: 12000000 },
     { id: id(2, "54000000"), ownerId: USERS.noah, metric: "sum", target: 4500000 },

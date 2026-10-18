@@ -153,4 +153,3 @@ Fra kalkylearket, som påvirker fase 2:
 - Dekningsgrad i arket regnes mot sum inkludert mva. Eks. mva gir et lavere tall.
 - Like varenavn gjør VLOOKUP feil mellom tømrer og murer. Prislistene her bruker stabile koder (`RIV-001`, `TOM-001`) i stedet.
 - Noen salgspriser i regnearket er faste tall og avviker fra underarket. Seed lagrer regnearkets salgspris som overstyring når den avviker.
-- Dekningsgrad vises eks. mva. Regnearket deler på sum inkl. mva.

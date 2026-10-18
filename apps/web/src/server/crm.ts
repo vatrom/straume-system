@@ -1,5 +1,6 @@
 import { prisma, type ActivityType } from "@straume/db";
 import {
+  areaFromPostal,
   assertCanDeletePipeline,
   createStage,
   deleteStage,
@@ -251,6 +252,7 @@ export async function createDeal(user: { id: string; role: string }, input: Deal
   const stage = await prisma.stage.findFirst({ where: { id: stageId, pipelineId } });
   if (!stage) throw new DomainError("Fasen hører ikke til pipelinen");
   const personId = await resolvePerson(user.id, input);
+  const place = await placeOf(personId);
   const deal = await prisma.deal.create({
     data: {
       title,
@@ -266,8 +268,12 @@ export async function createDeal(user: { id: string; role: string }, input: Deal
       label: input.label || null,
       probabilityOverride: input.probabilityOverride ?? null,
       stageEnteredAt: new Date(),
+      postalCode: place.postalCode,
+      area: place.area,
     },
   });
+  await recordStage(user.id, deal.id, null, null, stage.id, stage.name);
+  await recordValue(user.id, deal.id, 0, input.valueNok ?? 0);
   await audit(user.id, "deal.create", "deal", deal.id, { title });
   return deal;
 }
@@ -305,6 +311,7 @@ export async function updateDeal(user: { id: string; role: string }, id: string,
     stageId = first.id;
   }
   const personId = input.newPerson ? await resolvePerson(user.id, input) : input.personId === undefined ? undefined : input.personId;
+  const place = personId === undefined ? null : await placeOf(personId);
   const updated = await prisma.deal.update({
     where: { id },
     data: {
@@ -321,10 +328,43 @@ export async function updateDeal(user: { id: string; role: string }, id: string,
       plannedStartDate: input.plannedStartDate === undefined ? undefined : asDate(input.plannedStartDate),
       label: input.label === undefined ? undefined : input.label,
       probabilityOverride: input.probabilityOverride === undefined ? undefined : input.probabilityOverride,
+      postalCode: place ? place.postalCode : undefined,
+      area: place ? place.area : undefined,
     },
   });
+  if (stageId !== deal.stageId) {
+    const from = await prisma.stage.findUnique({ where: { id: deal.stageId } });
+    const to = await prisma.stage.findUnique({ where: { id: stageId } });
+    await recordStage(user.id, id, deal.stageId, from?.name ?? "Slettet fase", stageId, to?.name ?? "Ukjent fase");
+  }
+  if (input.valueNok !== undefined && input.valueNok !== (dec(deal.valueNok) ?? 0)) {
+    await recordValue(user.id, id, dec(deal.valueNok) ?? 0, input.valueNok ?? 0);
+  }
   await audit(user.id, "deal.update", "deal", id, { stageId, pipelineId });
   return updated;
+}
+
+async function actorName(userId: string) {
+  const actor = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
+  return actor?.name ?? "Ukjent";
+}
+
+async function placeOf(personId: string | null | undefined) {
+  if (!personId) return { postalCode: null, area: "Ukjent" };
+  const person = await prisma.person.findUnique({ where: { id: personId } });
+  return { postalCode: person?.postalCode ?? null, area: areaFromPostal(person?.postalCode, person?.city) };
+}
+
+async function recordStage(userId: string, dealId: string, fromStageId: string | null, fromStageName: string | null, toStageId: string | null, toStageName: string) {
+  await prisma.dealStageEvent.create({
+    data: { dealId, fromStageId, fromStageName, toStageId, toStageName, userId, userName: await actorName(userId) },
+  });
+}
+
+async function recordValue(userId: string, dealId: string, fromValue: number, toValue: number) {
+  await prisma.dealValueEvent.create({
+    data: { dealId, fromValue, toValue, userId, userName: await actorName(userId) },
+  });
 }
 
 export async function winDeal(

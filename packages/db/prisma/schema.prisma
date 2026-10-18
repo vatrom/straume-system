@@ -105,6 +105,9 @@ model User {
   documents       Document[]
   auditLogs       AuditLog[]
   inspections     Inspection[]
+  salesGoals      SalesGoal[]       @relation("GoalOwner")
+  savedReports    SavedReport[]     @relation("ReportOwner")
+  dashboards      InsightDashboard[] @relation("DashboardOwner")
 }
 
 model OptionList {
@@ -208,10 +211,15 @@ model Deal {
   lostComment         String?
   probabilityOverride Int?
   label               String?
+  postalCode          String?
+  area                String?
   stageEnteredAt      DateTime   @default(now())
   wonAt               DateTime?
   lostAt              DateTime?
   project             Project?
+  stageEvents         DealStageEvent[]
+  valueEvents         DealValueEvent[]
+  fieldValues         DealFieldValue[]
   documents           Document[]
   inspections         Inspection[]
   floors              Floor[]
@@ -224,6 +232,10 @@ model Deal {
   @@index([pipelineId, status])
   @@index([stageId])
   @@index([ownerId])
+  @@index([wonAt])
+  @@index([lostAt])
+  @@index([createdAt])
+  @@index([area])
 }
 
 model Activity {
@@ -707,4 +719,102 @@ model MailLog {
 model AppSetting {
   key   String @id
   value String
+}
+
+model DealStageEvent {
+  id            String   @id @default(uuid())
+  dealId        String
+  deal          Deal     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  fromStageId   String?
+  fromStageName String?
+  toStageId     String?
+  toStageName   String
+  userId        String?
+  userName      String
+  at            DateTime @default(now())
+
+  @@index([dealId, at])
+  @@index([at])
+}
+
+model DealValueEvent {
+  id        String   @id @default(uuid())
+  dealId    String
+  deal      Deal     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  fromValue Decimal  @db.Decimal(12, 2)
+  toValue   Decimal  @db.Decimal(12, 2)
+  userId    String?
+  userName  String
+  at        DateTime @default(now())
+
+  @@index([dealId, at])
+}
+
+model CustomField {
+  id      String           @id
+  key     String           @unique
+  name    String
+  kind    String
+  options Json?
+  values  DealFieldValue[]
+}
+
+model DealFieldValue {
+  dealId  String
+  deal    Deal        @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  fieldId String
+  field   CustomField @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  value   String
+
+  @@id([dealId, fieldId])
+}
+
+model SalesGoal {
+  id          String   @id
+  ownerId     String?
+  owner       User?    @relation("GoalOwner", fields: [ownerId], references: [id])
+  periodStart DateTime @db.Date
+  periodEnd   DateTime @db.Date
+  metric      String
+  target      Decimal  @db.Decimal(14, 2)
+  createdAt   DateTime @default(now())
+
+  @@index([ownerId, periodStart])
+}
+
+model SavedReport {
+  id        String           @id @default(uuid())
+  name      String
+  ownerId   String
+  owner     User             @relation("ReportOwner", fields: [ownerId], references: [id])
+  shared    Boolean          @default(false)
+  spec      Json
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  tiles     DashboardTile[]
+}
+
+model InsightDashboard {
+  id        String          @id
+  name      String
+  slug      String          @unique
+  ownerId   String
+  owner     User            @relation("DashboardOwner", fields: [ownerId], references: [id])
+  shared    Boolean         @default(true)
+  createdAt DateTime        @default(now())
+  tiles     DashboardTile[]
+}
+
+model DashboardTile {
+  id          String           @id
+  dashboardId String
+  dashboard   InsightDashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+  reportId    String?
+  report      SavedReport?     @relation(fields: [reportId], references: [id], onDelete: SetNull)
+  title       String
+  spec        Json
+  view        String
+  sortOrder   Int
+
+  @@index([dashboardId, sortOrder])
 }

@@ -166,6 +166,30 @@ a.kpi.on { outline: 2px solid var(--copper); }
 
 .sketch { background: white; border-radius: 12px; border: 1px solid var(--line); overflow: auto; }
 .note-internal { border-left: 3px solid var(--copper); padding-left: 8px; }
+
+.insight-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; margin-top: 16px; }
+.insight-card { min-height: 220px; }
+.insight-kpi strong { font-family: var(--serif); font-size: 1.8rem; }
+.insight-head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.insight-head h2 { font-size: 1.05rem; margin: 0 0 8px; }
+.bars { display: flex; align-items: flex-end; gap: 10px; min-height: 190px; overflow-x: auto; padding-top: 8px; }
+.bar-col { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; min-width: 72px; text-decoration: none; color: inherit; gap: 4px; }
+.bar { width: 36px; border-radius: 8px 8px 2px 2px; display: block; }
+.bar-label, .bar-value { font-size: 12px; text-align: center; max-width: 88px; }
+.bar-value { color: var(--muted); }
+.line-chart { width: 100%; height: auto; }
+.donut-wrap { display: flex; gap: 16px; align-items: center; }
+.donut { width: 140px; height: 140px; }
+.legend { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.legend a { text-decoration: none; color: inherit; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 99px; margin-right: 6px; }
+.funnel { display: flex; flex-direction: column; gap: 8px; }
+.funnel-row { display: grid; grid-template-columns: 160px 1fr auto; gap: 8px; align-items: center; text-decoration: none; color: inherit; }
+.funnel-track { background: #efeae3; border-radius: 999px; height: 18px; }
+.funnel-track span { display: block; height: 100%; border-radius: 999px; }
+.goal-track { background: #efeae3; border-radius: 999px; height: 10px; overflow: hidden; }
+.goal-track span { display: block; height: 100%; background: var(--sea); }
+.delta.down { color: var(--rot); }
 .tabs { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
 .tabs a { text-decoration: none; padding: 6px 10px; border-radius: 999px; background: white; border: 1px solid var(--line); }
 .tabs a.on { background: var(--sea); color: white; border-color: var(--sea); }

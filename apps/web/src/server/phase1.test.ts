@@ -3,6 +3,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { isoDate } from "./dates";
 import { addStage, createDeal, createPipeline, createProjectFromDeal, dealsForBoard, editStage, orderStages, removePipeline, removeStage, winDeal } from "./crm";
 import { adjustPriceList, priceListView } from "./price-admin";
+import { queryInsights } from "./insights";
 import { customerView, dashboard, moveProject, updateProject } from "./projects";
 import { pushMutations } from "./sync-service";
 
@@ -187,5 +188,36 @@ describe("fase 1 mot databasen", () => {
     if (!without.project) throw new Error("Mangler prosjekt");
     extraProjects.push(without.project.id);
     expect(without.project.plannedStartDate).toBeNull();
+  });
+
+  it("beholder fasenavn i historikken og summerer vunne avtaler", async () => {
+    const result = await queryInsights(admin, {
+      kind: "won",
+      measure: "sum",
+      groupBy: "seller",
+      period: "custom",
+      from: "2024-11-01",
+      to: "2026-10-18",
+      compare: "none",
+      view: "bar",
+    });
+    expect(result.total).toBeGreaterThan(1_000_000);
+    expect(result.buckets.length).toBeGreaterThan(1);
+    const pipeline = await createPipeline(admin, { name: `Histpipe ${Date.now()}` });
+    const stage = pipeline.stages[0]!;
+    const deal = await createDeal(admin, {
+      title: `Histavtale ${Date.now()}`,
+      valueNok: 150000,
+      pipelineId: pipeline.id,
+      stageId: stage.id,
+    });
+    extraDeals.push(deal.id);
+    const events = await prisma.dealStageEvent.findMany({ where: { dealId: deal.id } });
+    expect(events[0]?.toStageName).toBe("Ny fase");
+    await editStage(admin, stage.id, { name: "Omdøpt fase" });
+    const kept = await prisma.dealStageEvent.findUnique({ where: { id: events[0]!.id } });
+    expect(kept?.toStageName).toBe("Ny fase");
+    await prisma.deal.delete({ where: { id: deal.id } });
+    await removePipeline(admin, pipeline.id);
   });
 });

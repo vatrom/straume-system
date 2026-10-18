@@ -22,6 +22,7 @@ import {
   type Sketch,
 } from "@straume/domain";
 import { PrismaClient, type ActivityType, type QuestionType } from "@prisma/client";
+import { ensureInsights } from "./insight-seed";
 
 const prisma = new PrismaClient();
 
@@ -271,6 +272,7 @@ async function main() {
       data: { probability: 40, rottenDays: 14 },
     });
     await ensureDealProjectSplit();
+    await ensureInsights(prisma);
     console.log("Seed finnes allerede. Hoppet over. Sett SEED_FORCE=1 for å kjøre på nytt (upsert).");
     return;
   }
@@ -779,6 +781,7 @@ async function main() {
   }
 
   await ensureDealProjectSplit();
+  await ensureInsights(prisma);
 
   await prisma.appSetting.upsert({
     where: { key: "seed_complete" },

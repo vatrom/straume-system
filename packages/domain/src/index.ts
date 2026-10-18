@@ -9,3 +9,4 @@ export * from "./geometry";
 export * from "./sync";
 export * from "./visibility";
 export * from "./winner";
+export * from "./insights";

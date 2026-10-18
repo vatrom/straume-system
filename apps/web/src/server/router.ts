@@ -6,6 +6,7 @@ import { addActivity, addOption, addStage, createDeal, createPipeline, createPro
 import { checklistEditor, publishChecklist, saveDraft, type DraftSection } from "./checklists";
 import { HttpError, json, jsonError, readJson } from "./http";
 import { activateList, addItem, adjustPriceList, editLine, listPriceLists, priceListView } from "./price-admin";
+import { dashboardView, deleteGoal, deleteReport, drilldown, exportInsights, goalBoard, insightMeta, queryInsights, saveGoal, saveReport, setPeerVisibility, toCsv, toExcelXml } from "./insights";
 import { addChange, addDocument, addPhase, customerView, dashboard, editChange, editPhase, listBoards, moveProject, orderPhases, projectDetail, removePhase, roomSketchFile, sendWinner, updateProject } from "./projects";
 import { getObject } from "./store";
 import { pullChanges, pushMutations, saveMediaFile } from "./sync-service";
@@ -52,6 +53,38 @@ async function login(req: Request): Promise<Response> {
 async function dispatch(req: Request, slug: string[], user: SessionUser): Promise<Response> {
   const [a, b, c, d] = slug;
   const method = req.method;
+  if (a === "insights" && b === "export" && method === "GET") {
+    const url = new URL(req.url);
+    const spec = JSON.parse(url.searchParams.get("spec") ?? "{}") as Record<string, unknown>;
+    const file = await exportInsights(user, spec);
+    const excel = url.searchParams.get("format") === "xls";
+    const body = excel ? toExcelXml(file.header, file.body) : toCsv(file.header, file.body);
+    return new Response(body, {
+      status: 200,
+      headers: {
+        "content-type": excel ? "application/vnd.ms-excel; charset=utf-8" : "text/csv; charset=utf-8",
+        "content-disposition": `attachment; filename="innsikt.${excel ? "xls" : "csv"}"`,
+      },
+    });
+  }
+  if (a === "insights" && b === "meta" && method === "GET") return json(await insightMeta(user), 200, req);
+  if (a === "insights" && b === "query" && method === "POST") return json(await queryInsights(user, await readJson(req)), 200, req);
+  if (a === "insights" && b === "drill" && method === "POST") {
+    const body = await readJson<{ spec?: Record<string, unknown>; bucket?: string }>(req);
+    return json(await drilldown(user, body.spec ?? {}, body.bucket ?? "__all"), 200, req);
+  }
+  if (a === "insights" && b === "reports" && !c && method === "POST") return json(await saveReport(user, await readJson(req)), 201, req);
+  if (a === "insights" && b === "reports" && c && method === "DELETE") {
+    await deleteReport(user, c);
+    return json({ ok: true }, 200, req);
+  }
+  if (a === "insights" && b === "goals" && !c && method === "GET") return json(await goalBoard(user), 200, req);
+  if (a === "insights" && b === "goals" && !c && method === "POST") return json(await saveGoal(user, await readJson(req)), 201, req);
+  if (a === "insights" && b === "goals" && c && method === "DELETE") {
+    await deleteGoal(user, c);
+    return json({ ok: true }, 200, req);
+  }
+  if (a === "insights" && b === "peers" && method === "POST") return json(await setPeerVisibility(user, await readJson(req)), 200, req);
 
   if (a === "pipelines" && !b && method === "GET") return json(await listPipelines(), 200, req);
   if (a === "pipelines" && !b && method === "POST") {

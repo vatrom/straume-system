@@ -8,7 +8,6 @@ import {
   DomainError,
   rollupBom,
   TRADE_CODES,
-  TRADES,
   tableToXlsx,
   type BomLineInput,
   type CommercialSettings,
@@ -79,12 +78,12 @@ function commercialOf(list: {
 }): CommercialSettings {
   return {
     vatRate: dec(list.vatRate) ?? 0.25,
-    byggstartPercent: dec(list.byggstartPercent) ?? 0.07,
-    byggstartFactor: dec(list.byggstartFactor) ?? 1.3,
+    byggstartPercent: dec(list.byggstartPercent) ?? 0.08,
+    byggstartFactor: dec(list.byggstartFactor) ?? 1,
     mittanbudPercent: dec(list.mittanbudPercent) ?? 0.05,
-    mittanbudFactor: dec(list.mittanbudFactor) ?? 1.3,
-    extraCalloutNok: dec(list.extraCalloutNok),
-    tileAllowanceExVat: dec(list.tileAllowanceExVat),
+    mittanbudFactor: dec(list.mittanbudFactor) ?? 1,
+    extraCalloutNok: dec(list.extraCalloutNok) ?? 490,
+    tileAllowanceExVat: dec(list.tileAllowanceExVat) ?? 400,
     electricianCostFactor: dec(list.electricianCostFactor) ?? 1.15,
     assemblyHourlyNok: dec(list.assemblyHourlyNok),
   };
@@ -108,7 +107,7 @@ function commercialData(commercial: CommercialSettings | undefined) {
 export async function loadList(id: string): Promise<PriceListInput> {
   const list = await prisma.priceList.findUnique({
     where: { id },
-    include: { lines: { include: { priceItem: true } }, rates: true },
+    include: { lines: { include: { priceItem: true } }, rates: { include: { trade: true } } },
   });
   if (!list) throw new DomainError("Fant ikke prislisten");
   return {
@@ -123,8 +122,9 @@ export async function loadList(id: string): Promise<PriceListInput> {
       tradeCode: rate.tradeId,
       hourlyRateSale: dec(rate.hourlyRateSale) ?? 0,
       hourlyRateInternal: dec(rate.hourlyRateInternal) ?? 0,
-      calloutPrice: dec(rate.calloutPrice) ?? 0,
+      calloutPrice: dec(rate.calloutPrice),
       defaultMaterialMarkup: dec(rate.defaultMaterialMarkup) ?? 0,
+      subcontractor: rate.trade.subcontractor,
     })),
   };
 }
@@ -182,13 +182,18 @@ export async function priceListView(id: string) {
         hasBom: Boolean(rollup),
         bomFlags: rollup?.flags.map((flag) => flag.message) ?? [],
       };
-    })
-    .sort((a, b) => a.tradeCode.localeCompare(b.tradeCode) || a.sortOrder - b.sortOrder);
-  const hoursByTrade = TRADES.map((trade) => ({
-    tradeCode: trade.code,
-    name: trade.name,
-    hours: lines.filter((line) => line.active && line.tradeCode === trade.code).reduce((sum, line) => sum + line.hoursPerUnit, 0),
-  })).filter((trade) => trade.hours > 0);
+    });
+  const trades = await prisma.trade.findMany({ orderBy: { sortOrder: "asc" } });
+  const rank = new Map(trades.map((trade) => [trade.code, trade.sortOrder]));
+  lines.sort((a, b) => (rank.get(a.tradeCode) ?? 99) - (rank.get(b.tradeCode) ?? 99) || a.sortOrder - b.sortOrder);
+  const hoursByTrade = trades
+    .map((trade) => ({
+      tradeCode: trade.code,
+      name: trade.name,
+      subcontractor: trade.subcontractor,
+      hours: trade.subcontractor ? 0 : lines.filter((line) => line.active && line.tradeCode === trade.code).reduce((sum, line) => sum + line.hoursPerUnit, 0),
+    }))
+    .filter((trade) => (trade.subcontractor ? lines.some((line) => line.active && line.tradeCode === trade.tradeCode) : trade.hours > 0));
   return { ...list, lines, hoursByTrade };
 }
 
@@ -468,4 +473,69 @@ export async function priceListExcel(id: string): Promise<{ name: string; body: 
     line.hasBom ? "ja" : "nei",
   ]);
   return { name: `${list.name}.xlsx`, body: tableToXlsx([header, ...rows]) };
+}
+
+function percentPoints(value: unknown, label: string): number {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0 || number > 100) throw new DomainError(`${label} må være mellom 0 og 100`);
+  return Math.round(number * 100) / 10000;
+}
+
+function moneyAmount(value: unknown, label: string): number {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0 || number > 1000000) throw new DomainError(`${label} må være et beløp eks. mva`);
+  return Math.round(number * 100) / 100;
+}
+
+export async function updateCommercial(
+  user: { id: string; role: string },
+  id: string,
+  input: { byggstartPercent?: unknown; mittanbudPercent?: unknown; extraCalloutNok?: unknown; tileAllowanceExVat?: unknown },
+) {
+  assertAdmin(user);
+  const list = await prisma.priceList.findUnique({ where: { id } });
+  if (!list) throw new DomainError("Fant ikke prislisten");
+  const data = {
+    byggstartPercent: percentPoints(input.byggstartPercent, "Byggstart"),
+    mittanbudPercent: percentPoints(input.mittanbudPercent, "MittAnbud XL"),
+    byggstartFactor: 1,
+    mittanbudFactor: 1,
+    extraCalloutNok: moneyAmount(input.extraCalloutNok, "Ekstra oppmøte"),
+    tileAllowanceExVat: moneyAmount(input.tileAllowanceExVat, "Flis"),
+  };
+  await prisma.priceList.update({ where: { id }, data });
+  const actor = await prisma.user.findUnique({ where: { id: user.id }, select: { name: true } });
+  await prisma.priceChangeLog.create({
+    data: { priceListId: id, actorId: user.id, actorName: actor?.name ?? user.id, action: "commercial.update", detail: data },
+  });
+  await audit(user.id, "pricelist.commercial", "pricelist", id, data);
+  return data;
+}
+
+export async function updateTradeRate(
+  user: { id: string; role: string },
+  id: string,
+  tradeCode: string,
+  input: { hourlyRateSale?: unknown; calloutPrice?: unknown },
+) {
+  assertAdmin(user);
+  if (!TRADE_CODES.includes(tradeCode as (typeof TRADE_CODES)[number])) throw new DomainError("Ukjent fag");
+  const hourlyRateSale = moneyAmount(input.hourlyRateSale, "Timepris");
+  const rawCallout = input.calloutPrice;
+  const calloutPrice = rawCallout == null || rawCallout === "" ? null : moneyAmount(rawCallout, "Oppmøte");
+  const rate = await prisma.tradeRate.findUnique({ where: { priceListId_tradeId: { priceListId: id, tradeId: tradeCode } } });
+  if (!rate) throw new DomainError("Fant ikke fagsatsen");
+  await prisma.tradeRate.update({ where: { id: rate.id }, data: { hourlyRateSale, calloutPrice } });
+  const actor = await prisma.user.findUnique({ where: { id: user.id }, select: { name: true } });
+  await prisma.priceChangeLog.create({
+    data: {
+      priceListId: id,
+      actorId: user.id,
+      actorName: actor?.name ?? user.id,
+      action: "rate.update",
+      detail: { tradeCode, hourlyRateSale, calloutPrice },
+    },
+  });
+  await audit(user.id, "pricelist.rate", "pricelist", id, { tradeCode, hourlyRateSale, calloutPrice });
+  return { tradeCode, hourlyRateSale, calloutPrice };
 }

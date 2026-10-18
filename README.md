@@ -86,11 +86,17 @@ Skisse er et polygon i meter. Vegger nummereres med klokka fra døra. Omkrets, g
 
 Kalkylen ligger i `@straume/domain` og er deterministisk. Pris per enhet er materialkost × (1 + påslag) + timer × timepris. Mva legges på én gang. Dekningsgrad og dekningsbidrag vises eks. mva. Oppslag går på varekode.
 
+Kildetillegg regnes på arbeidssummen eks. mva, før mva: Byggstart 8 % og MittAnbud XL 5 %. Faktoren 1,3 brukes ikke. Prosentene kan endres på prislisten. Mva legges deretter på summen av arbeid, kildetillegg og eventuelt ekstra fortjeneste.
+
+Elektriker er underleverandør. Postene har fast salgspris, eller innkjøpspris med påslag, og ingen egne timer. Standard timepris er 1 150 kr eks. mva. Faget kan skrus av som underleverandør under Innstillinger. Ekstra oppmøte er 490 kr eks. mva for alle fag, med valgfri overstyring per fag. Flis er 400 kr/m² eks. mva. Kundetekst bruker `{{flis.inntil.ink}}` (500 kr inkl. mva) og `{{flis.inntil}}` for beløpet eks. mva.
+
+Fagrekkefølgen følger tilbudsmalen: riving, tømrer, elektriker, rørlegger, murer/flis, maler. Administrator endrer den under Innstillinger. Samme rekkefølge brukes i tilbudstekst, PDF og den publiserte sjekklisten i befaringsappen.
+
 Uten `ANTHROPIC_API_KEY` lager «Lag tilbudsutkast» et deterministisk utkast fra befaring, sjekkliste og mengdeformler. Med nøkkel kalles Claude med tvunget verktøy `lag_tilbudsutkast`. Modellen velger koder og mengder og skriver tekst. Motoren setter prisen. Prompt og svar logges på tilbudet, med kost ut fra `ANTHROPIC_INPUT_USD_PER_MTOK` (standard 3) og `ANTHROPIC_OUTPUT_USD_PER_MTOK` (standard 15). Interne notater sendes bare merket som interne, og kundetekst som inneholder dem blir renset.
 
 Tilbudet følger utkast → til godkjenning → godkjent → sendt → akseptert eller avslått. Hvem som kan godkjenne, styres av innstillingen `quote_approver_roles` (standard administrator og kontor). Aksept kopierer totalsummen til avtalen og prosjektet. Ny revisjon er et nytt utkast. E-post skrives til `MailLog` og sendes ikke.
 
-Prisdatabasen viser timer og materiell hver for seg, med merke når splittet er utledet eller må kontrolleres. Justering kan gjelde materiell og timepris hver for seg. Endringer logges. Excel-eksport ligger på prislisten. Planlagte timer vises på tilbudet, på prosjektet og i innsikt (`planned_hours`).
+Prisdatabasen viser timer og materiell hver for seg, med merke når splittet er utledet eller må kontrolleres. Underleverandørposter er kjent splitt selv om de mangler timer. Justering kan gjelde materiell og timepris hver for seg. Endringer logges. Excel-eksport ligger på prislisten. Planlagte egne timer vises på tilbudet, på prosjektet og i innsikt (`planned_hours`). Underleverandør står som «Underleverandør» og er ikke med i timesummen.
 
 En prispost kan ha en stykkliste: fri sum, eller mengde av et produkt. Produktkatalogen har leverandør, varenummer, NOBB, EAN, navn, enhet, netto kostpris, veil. pris, gyldig fra og kilde-prisfil. Import leser CSV og Excel med lagret kolonnemapping. Formatene `efo`, `nelfo` og `api` har ferdige kolonnenavn. Ny fil viser diff, oppdaterer produkter og regner materialkost på nytt for aktive og utkast-prislister. Tilbudslinjer beholder enhetsprisen de fikk. Poster uten stykkliste beholder enkel materialsum. Utgåtte varer og varer uten pris flagges.
 
@@ -147,9 +153,4 @@ Fra kalkylearket, som påvirker fase 2:
 - Dekningsgrad i arket regnes mot sum inkludert mva. Eks. mva gir et lavere tall.
 - Like varenavn gjør VLOOKUP feil mellom tømrer og murer. Prislistene her bruker stabile koder (`RIV-001`, `TOM-001`) i stedet.
 - Noen salgspriser i regnearket er faste tall og avviker fra underarket. Seed lagrer regnearkets salgspris som overstyring når den avviker.
-- Timepriser i de gamle tekstmalene (elektriker 1 150) stemmer ikke med kalkylen (1 190). Teksten bruker nå flettefelt, så den følger prislisten. Bekreft om 1 150 skal inn som egen sats.
-- Ekstra oppmøte 490 i teksten mot 450/500/550 per fag i arket. Fellesfeltet `extraCalloutNok` står tomt og vises som «sats ikke satt» til det settes.
-- «Flis for inntil 500 kr/m²» i teksten mot 400 kr/m² eks. mva i arket. `tileAllowanceExVat` står tomt til det settes.
-- Faktoren 1,3 på Byggstart og MittAnbud er ikke forklart. Hele gebyret legges på kundens pris og er ikke trukket som kostnad.
-- Elektrikerposter med bare salgspris er merket «må kontrolleres». Timer og materiell er ikke gjettet.
-- Fagrekkefølgen følger tilbudsmalen og regnearket: elektriker før rørlegger.
+- Dekningsgrad vises eks. mva. Regnearket deler på sum inkl. mva.

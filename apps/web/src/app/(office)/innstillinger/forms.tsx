@@ -14,15 +14,18 @@ export function SettingsForms({
   approverRoles,
   isAdmin,
   users,
+  trades,
   lists,
 }: {
   winnerEmail: string;
   approverRoles: string[];
   isAdmin: boolean;
   users: { id: string; name: string; email: string; role: string; active: boolean }[];
+  trades: { code: string; name: string; subcontractor: boolean }[];
   lists: { key: string; name: string; items: { id: string; label: string; active: boolean }[] }[];
 }) {
   const [message, setMessage] = useState("");
+  const [order, setOrder] = useState(trades);
 
   async function send(path: string, method: string, body: unknown) {
     const response = await fetch(path, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -81,6 +84,60 @@ export function SettingsForms({
           </button>
         ) : null}
       </form>
+      <section className="card stack">
+        <h2>Fag</h2>
+        <p className="muted">Rekkefølgen brukes i tilbud, PDF og standard sjekkliste. Underleverandør prises uten egne timer.</p>
+        {order.map((trade, index) => (
+          <div className="row" key={trade.code}>
+            <strong style={{ minWidth: "8rem" }}>{trade.name}</strong>
+            <label>
+              <input
+                type="checkbox"
+                checked={trade.subcontractor}
+                disabled={!isAdmin}
+                onChange={async (event) => {
+                  const subcontractor = event.target.checked;
+                  setOrder((current) => current.map((item) => (item.code === trade.code ? { ...item, subcontractor } : item)));
+                  try {
+                    await send(`/api/trades/${trade.code}`, "PATCH", { subcontractor });
+                    setMessage(subcontractor ? `${trade.name} er underleverandør` : `${trade.name} er eget fag`);
+                  } catch (error) {
+                    setMessage(error instanceof Error ? error.message : "Feil");
+                  }
+                }}
+              />{" "}
+              Underleverandør
+            </label>
+            <button className="btn" type="button" disabled={!isAdmin || index === 0} onClick={() => setOrder((current) => move(current, index, -1))}>
+              Opp
+            </button>
+            <button
+              className="btn"
+              type="button"
+              disabled={!isAdmin || index === order.length - 1}
+              onClick={() => setOrder((current) => move(current, index, 1))}
+            >
+              Ned
+            </button>
+          </div>
+        ))}
+        {isAdmin ? (
+          <button
+            className="btn primary"
+            type="button"
+            onClick={async () => {
+              try {
+                await send("/api/trades/order", "PUT", { codes: order.map((trade) => trade.code) });
+                setMessage("Fagrekkefølgen er lagret");
+              } catch (error) {
+                setMessage(error instanceof Error ? error.message : "Feil");
+              }
+            }}
+          >
+            Lagre rekkefølge
+          </button>
+        ) : null}
+      </section>
       {isAdmin ? (
         <section className="card stack">
           <h2>Brukere</h2>
@@ -218,4 +275,15 @@ export function SettingsForms({
       {message ? <p>{message}</p> : null}
     </div>
   );
+}
+
+function move<T>(rows: T[], index: number, delta: number): T[] {
+  const next = rows.slice();
+  const target = index + delta;
+  const current = next[index];
+  const other = next[target];
+  if (!current || !other) return rows;
+  next[index] = other;
+  next[target] = current;
+  return next;
 }

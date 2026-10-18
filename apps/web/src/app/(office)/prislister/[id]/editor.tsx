@@ -25,7 +25,29 @@ type Line = {
 
 const SPLIT: Record<string, string> = { known: "Kjent", derived: "Utledet", uncertain: "Må kontrolleres" };
 
-export function PriceEditor({ listId, status, lines }: { listId: string; status: string; lines: Line[] }) {
+type Commercial = {
+  vatRate: number;
+  byggstartPercent: number;
+  mittanbudPercent: number;
+  extraCalloutNok: number | null;
+  tileAllowanceExVat: number | null;
+};
+
+type Rate = { tradeCode: string; hourlyRateSale: number; calloutPrice: number | null };
+
+export function PriceEditor({
+  listId,
+  status,
+  commercial,
+  rates,
+  lines,
+}: {
+  listId: string;
+  status: string;
+  commercial: Commercial;
+  rates: Rate[];
+  lines: Line[];
+}) {
   const router = useRouter();
   const [message, setMessage] = useState("");
   const [trade, setTrade] = useState("alle");
@@ -41,7 +63,10 @@ export function PriceEditor({ listId, status, lines }: { listId: string; status:
 
   async function send(path: string, body: unknown) {
     const response = await fetch(path, {
-      method: path.includes("/lines/") && !path.endsWith("/archive") ? "PATCH" : "POST",
+      method:
+        (path.includes("/lines/") && !path.endsWith("/archive")) || path.endsWith("/commercial") || path.includes("/rates/")
+          ? "PATCH"
+          : "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
@@ -50,8 +75,91 @@ export function PriceEditor({ listId, status, lines }: { listId: string; status:
     return data;
   }
 
+  const tileInk = commercial.tileAllowanceExVat == null ? null : Math.round(commercial.tileAllowanceExVat * (1 + commercial.vatRate));
   return (
     <div className="stack">
+      <form
+        className="card stack"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          const form = new FormData(event.currentTarget);
+          try {
+            await send(`/api/price-lists/${listId}/commercial`, {
+              byggstartPercent: Number(form.get("byggstartPercent")),
+              mittanbudPercent: Number(form.get("mittanbudPercent")),
+              extraCalloutNok: Number(form.get("extraCalloutNok")),
+              tileAllowanceExVat: Number(form.get("tileAllowanceExVat")),
+            });
+            window.location.reload();
+          } catch (error) {
+            setMessage(error instanceof Error ? error.message : "Feil");
+          }
+        }}
+      >
+        <h2>Kilde og felles satser</h2>
+        <p className="muted">
+          Kildetillegget er prosent av sum eks. mva, før mva. Flis mot kunde vises inkl. mva
+          {tileInk != null ? ` (${tileInk.toLocaleString("nb-NO")} kr)` : ""}.
+        </p>
+        <div className="row">
+          <label className="field">
+            <span>Byggstart %</span>
+            <input name="byggstartPercent" type="number" step="0.1" min="0" max="100" defaultValue={commercial.byggstartPercent * 100} />
+          </label>
+          <label className="field">
+            <span>MittAnbud XL %</span>
+            <input name="mittanbudPercent" type="number" step="0.1" min="0" max="100" defaultValue={commercial.mittanbudPercent * 100} />
+          </label>
+          <label className="field">
+            <span>Ekstra oppmøte eks. mva</span>
+            <input name="extraCalloutNok" type="number" step="1" min="0" defaultValue={commercial.extraCalloutNok ?? ""} />
+          </label>
+          <label className="field">
+            <span>Flis kr/m² eks. mva</span>
+            <input name="tileAllowanceExVat" type="number" step="1" min="0" defaultValue={commercial.tileAllowanceExVat ?? ""} />
+          </label>
+          <button className="btn" type="submit">
+            Lagre satser
+          </button>
+        </div>
+      </form>
+      <section className="card stack">
+        <h2>Timepris og oppmøte per fag</h2>
+        <p className="muted">Tomt oppmøtefelt bruker den felles satsen. Et tall overstyrer bare det faget.</p>
+        {rates.map((rate) => (
+          <form
+            key={rate.tradeCode}
+            className="row"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              const form = new FormData(event.currentTarget);
+              const callout = String(form.get("calloutPrice") ?? "").trim();
+              try {
+                await send(`/api/price-lists/${listId}/rates/${rate.tradeCode}`, {
+                  hourlyRateSale: Number(form.get("hourlyRateSale")),
+                  calloutPrice: callout === "" ? null : Number(callout),
+                });
+                setMessage("Fagsats lagret");
+              } catch (error) {
+                setMessage(error instanceof Error ? error.message : "Feil");
+              }
+            }}
+          >
+            <strong style={{ minWidth: "8rem" }}>{TRADES.find((trade) => trade.code === rate.tradeCode)?.name ?? rate.tradeCode}</strong>
+            <label className="field">
+              <span>Timepris eks. mva</span>
+              <input name="hourlyRateSale" type="number" step="1" min="0" defaultValue={rate.hourlyRateSale} />
+            </label>
+            <label className="field">
+              <span>Oppmøte, overstyring</span>
+              <input name="calloutPrice" type="number" step="1" min="0" placeholder="Felles sats" defaultValue={rate.calloutPrice ?? ""} />
+            </label>
+            <button className="btn" type="submit">
+              Lagre
+            </button>
+          </form>
+        ))}
+      </section>
       {status !== "active" ? (
         <button
           className="btn primary"

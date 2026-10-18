@@ -314,7 +314,7 @@ async function main() {
       "Har brukt oss før",
       "Instagram/Facebook",
       "MittAnbud",
-      "Mittanbud XL",
+      "MittAnbud XL",
       "Tok direkte kontakt på tlf/mail",
       "Anbefalt via Flisbutikk/Leverandør",
       "Rørkjøp Arbeidsformidling",
@@ -402,8 +402,8 @@ async function main() {
   for (const trade of TRADES) {
     await prisma.trade.upsert({
       where: { id: trade.code },
-      update: { name: trade.name, sortOrder: trade.sort, code: trade.code },
-      create: { id: trade.code, code: trade.code, name: trade.name, sortOrder: trade.sort },
+      update: { name: trade.name, code: trade.code, subcontractor: trade.code === "elektriker" },
+      create: { id: trade.code, code: trade.code, name: trade.name, sortOrder: trade.sort, subcontractor: trade.code === "elektriker" },
     });
   }
   const csv = readFileSync(join(here, "data/prisposter.csv"), "utf8");
@@ -412,15 +412,38 @@ async function main() {
     name: "Prisliste 2026",
     validFrom: "2026-08-11",
   });
+  const commercial = priceList.commercial;
   await prisma.priceList.upsert({
     where: { id: priceList.id },
-    update: { name: priceList.name, status: "active", comment: "Importert fra prisposter.csv. Salgspris følger regnearket." },
+    update: {
+      name: priceList.name,
+      status: "active",
+      comment: "Importert fra prisposter.csv. Salgspris følger regnearket.",
+      vatRate: commercial?.vatRate,
+      byggstartPercent: commercial?.byggstartPercent,
+      byggstartFactor: commercial?.byggstartFactor,
+      mittanbudPercent: commercial?.mittanbudPercent,
+      mittanbudFactor: commercial?.mittanbudFactor,
+      extraCalloutNok: commercial?.extraCalloutNok,
+      tileAllowanceExVat: commercial?.tileAllowanceExVat,
+      electricianCostFactor: commercial?.electricianCostFactor,
+      assemblyHourlyNok: commercial?.assemblyHourlyNok,
+    },
     create: {
       id: priceList.id,
       name: priceList.name,
       validFrom: new Date("2026-08-11"),
       status: "active",
       comment: "Importert fra prisposter.csv. Gyldig fra revisjonen 11.08.2026. Salgspris følger regnearket der underarket avviker.",
+      vatRate: commercial?.vatRate,
+      byggstartPercent: commercial?.byggstartPercent,
+      byggstartFactor: commercial?.byggstartFactor,
+      mittanbudPercent: commercial?.mittanbudPercent,
+      mittanbudFactor: commercial?.mittanbudFactor,
+      extraCalloutNok: commercial?.extraCalloutNok,
+      tileAllowanceExVat: commercial?.tileAllowanceExVat,
+      electricianCostFactor: commercial?.electricianCostFactor,
+      assemblyHourlyNok: commercial?.assemblyHourlyNok,
     },
   });
   for (const rate of DEFAULT_TRADE_RATES) {
@@ -455,6 +478,8 @@ async function main() {
         internalNote: line.internalNote,
         quantityFormula: line.quantityFormula,
         tradeId: line.tradeCode,
+        splitConfidence: line.splitConfidence ?? "known",
+        splitNote: line.splitNote ?? null,
       },
       create: {
         id: line.code,
@@ -468,6 +493,8 @@ async function main() {
         customerVisible: line.customerVisible,
         internalNote: line.internalNote,
         quantityFormula: line.quantityFormula,
+        splitConfidence: line.splitConfidence ?? "known",
+        splitNote: line.splitNote ?? null,
       },
     });
     const existingLine = await prisma.priceLine.findUnique({
@@ -568,7 +595,7 @@ async function main() {
     { id: id(1, "50000000"), title: "Eksempelveien 12", valueNok: 420000, ownerId: USERS.noah, personId: id(1, "40000000"), pipelineId: PIPE.salg, stageId: STAGE.sendt, sourceChannel: "Google", plannedStartDate: day("2026-11-16"), stageEnteredAt: day("2026-09-20"), label: null },
     { id: id(2, "50000000"), title: "Fjellstien 4", valueNok: 385000, ownerId: USERS.noah, personId: id(2, "40000000"), pipelineId: PIPE.salg, stageId: STAGE.befaring, sourceChannel: "Anbefalt via venner/bekjente", plannedStartDate: day("2026-12-01"), stageEnteredAt: day("2026-10-16"), label: null },
     { id: id(3, "50000000"), title: "Lyngveien 3", valueNok: 486000, ownerId: USERS.noah, personId: id(3, "40000000"), pipelineId: PIPE.salg, stageId: STAGE.slutt, sourceChannel: "Har brukt oss før", plannedStartDate: day("2026-11-02"), stageEnteredAt: day("2026-09-01"), status: "won" as const, wonAt: day("2026-09-28") },
-    { id: id(4, "50000000"), title: "Havneveien 15", valueNok: 512000, ownerId: USERS.ada, personId: id(4, "40000000"), pipelineId: PIPE.salg, stageId: STAGE.slutt, sourceChannel: "Mittanbud XL", plannedStartDate: day("2026-11-23"), stageEnteredAt: day("2026-10-02"), status: "won" as const, wonAt: day("2026-10-10"), label: "Byggstart" },
+    { id: id(4, "50000000"), title: "Havneveien 15", valueNok: 512000, ownerId: USERS.ada, personId: id(4, "40000000"), pipelineId: PIPE.salg, stageId: STAGE.slutt, sourceChannel: "MittAnbud XL", plannedStartDate: day("2026-11-23"), stageEnteredAt: day("2026-10-02"), status: "won" as const, wonAt: day("2026-10-10"), label: "Byggstart" },
     { id: id(5, "50000000"), title: "Demoalleen 7", valueNok: 350000, ownerId: USERS.ada, personId: id(1, "40000000"), pipelineId: PIPE.salg, stageId: STAGE.inn, sourceChannel: "Tok direkte kontakt på tlf/mail", plannedStartDate: day("2027-01-12"), stageEnteredAt: day("2026-10-17") },
     { id: id(6, "50000000"), title: "Prøvebakken 2", valueNok: 455000, ownerId: USERS.noah, personId: id(2, "40000000"), pipelineId: PIPE.salg, stageId: STAGE.kunde, sourceChannel: "Instagram/Facebook", plannedStartDate: day("2026-12-07"), stageEnteredAt: day("2026-10-05") },
     { id: id(7, "50000000"), title: "Fiktivveien 9", valueNok: 275000, ownerId: USERS.eirik, personId: id(4, "40000000"), pipelineId: PIPE.salg, stageId: STAGE.oss, sourceChannel: "Byggstart", plannedStartDate: null, stageEnteredAt: day("2026-10-01"), status: "lost" as const, lostAt: day("2026-10-12"), lostReason: "Pris (konkurrent)" },

@@ -53,6 +53,7 @@ export type TradeTotal = {
   sumExVat: number;
   hours: number;
   costExVat: number;
+  subcontractor: boolean;
 };
 
 export type CalcTotals = {
@@ -81,7 +82,7 @@ export type CalcTotals = {
 const CHANNEL_NAME: Record<ChannelCode, string> = {
   none: "Ingen kanal",
   byggstart: "Byggstart",
-  mittanbud: "MittAnbud",
+  mittanbud: "MittAnbud XL",
 };
 
 export function channelFromSource(source: string | null | undefined): ChannelCode {
@@ -150,13 +151,8 @@ export function calculateQuote(input: {
   const priced: PricedLine[] = input.lines.map((line) => priceOne(line, input.rates, commercial));
   const workExVat = roundMoney(priced.filter((line) => line.included).reduce((sum, line) => sum + line.lineSumExVat, 0));
   const extraProfitExVat = roundMoney(Math.max(0, input.extraProfitNok ?? 0));
-  const channelRule =
-    channel === "byggstart"
-      ? { percent: commercial.byggstartPercent, factor: commercial.byggstartFactor }
-      : channel === "mittanbud"
-        ? { percent: commercial.mittanbudPercent, factor: commercial.mittanbudFactor }
-        : { percent: 0, factor: 1 };
-  const channelExVat = roundMoney(workExVat * channelRule.percent * channelRule.factor);
+  const channelPercent = channel === "byggstart" ? commercial.byggstartPercent : channel === "mittanbud" ? commercial.mittanbudPercent : 0;
+  const channelExVat = roundMoney(workExVat * channelPercent);
   const addonsExVat = roundMoney(extraProfitExVat + channelExVat);
   const subtotalExVat = roundMoney(workExVat + addonsExVat);
   const vatNok = roundMoney(subtotalExVat * commercial.vatRate);
@@ -169,12 +165,14 @@ export function calculateQuote(input: {
   const spreadsheetMarginIncVat = spreadsheetBase === 0 ? 0 : (spreadsheetBase - costExVat) / spreadsheetBase;
   const trades = TRADES.map((trade) => {
     const rows = priced.filter((line) => line.included && line.tradeCode === trade.code);
+    const subcontractor = Boolean(input.rates.find((rate) => rate.tradeCode === trade.code)?.subcontractor);
     return {
       tradeCode: trade.code,
       name: trade.name,
       sumExVat: roundMoney(rows.reduce((sum, line) => sum + line.lineSumExVat, 0)),
-      hours: roundMoney(rows.reduce((sum, line) => sum + line.hours, 0)),
+      hours: subcontractor ? 0 : roundMoney(rows.reduce((sum, line) => sum + line.hours, 0)),
       costExVat: roundMoney(rows.reduce((sum, line) => sum + line.lineCostExVat, 0)),
+      subcontractor,
     };
   }).filter((trade) => trade.sumExVat !== 0 || trade.hours !== 0);
   return {
@@ -184,8 +182,8 @@ export function calculateQuote(input: {
     extraProfitExVat,
     channelCode: channel,
     channelName: CHANNEL_NAME[channel],
-    channelPercent: channelRule.percent,
-    channelFactor: channelRule.factor,
+    channelPercent,
+    channelFactor: 1,
     channelExVat,
     addonsExVat,
     subtotalExVat,
@@ -195,14 +193,16 @@ export function calculateQuote(input: {
     costExVat,
     contributionExVat,
     marginExVat,
-    hoursTotal: roundMoney(trades.reduce((sum, trade) => sum + trade.hours, 0)),
+    hoursTotal: roundMoney(trades.filter((trade) => !trade.subcontractor).reduce((sum, trade) => sum + trade.hours, 0)),
     spreadsheetMarginIncVat,
   };
 }
 
 function priceOne(line: CalcLine, rates: RateInput[], commercial: CommercialSettings): PricedLine {
   const included = isIncluded(line);
-  const hours = roundMoney(Math.max(0, line.quantity) * Math.max(0, line.hoursPerUnit));
+  const rate = rates.find((item) => item.tradeCode === line.tradeCode);
+  const subcontractor = Boolean(rate?.subcontractor);
+  const hours = subcontractor ? 0 : roundMoney(Math.max(0, line.quantity) * Math.max(0, line.hoursPerUnit));
   let exact = 0;
   let priceSource: PricedLine["priceSource"] = "formula";
   if (line.unitPriceOverride != null) {
@@ -212,11 +212,10 @@ function priceOne(line: CalcLine, rates: RateInput[], commercial: CommercialSett
     exact = line.salePriceOverride ?? 0;
     priceSource = "list";
   } else {
-    const rate = rates.find((item) => item.tradeCode === line.tradeCode);
     if (!rate) throw new DomainError(`Mangler fagsats for ${line.tradeCode}`);
     const markup = line.materialMarkup ?? rate.defaultMaterialMarkup;
     const hourlyRate = line.hourlyRateOverride ?? rate.hourlyRateSale;
-    exact = line.materialCost * (1 + markup) + line.hoursPerUnit * hourlyRate;
+    exact = subcontractor ? line.materialCost * (1 + markup) : line.materialCost * (1 + markup) + line.hoursPerUnit * hourlyRate;
     priceSource = "formula";
   }
   const unitPrice = round4(exact);
@@ -246,7 +245,8 @@ function priceOne(line: CalcLine, rates: RateInput[], commercial: CommercialSett
 function lineCost(line: CalcLine, hours: number, lineSumExVat: number, rates: RateInput[], commercial: CommercialSettings): number {
   const material = Math.max(0, line.quantity) * Math.max(0, line.materialCost);
   const labor = hours * internalHourly(line, rates);
-  if (material === 0 && line.hoursPerUnit === 0 && lineSumExVat !== 0) {
+  const subcontractor = Boolean(rates.find((item) => item.tradeCode === line.tradeCode)?.subcontractor);
+  if (material === 0 && lineSumExVat !== 0 && (subcontractor || line.hoursPerUnit === 0)) {
     return roundMoney(lineSumExVat / commercial.electricianCostFactor);
   }
   return roundMoney(material + labor);

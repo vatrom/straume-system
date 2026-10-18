@@ -589,12 +589,14 @@ model ChecklistAnswer {
 }
 
 model Trade {
-  id        String      @id
-  code      String      @unique
-  name      String
-  sortOrder Int
-  items     PriceItem[]
-  rates     TradeRate[]
+  id             String      @id
+  code           String      @unique
+  name           String
+  sortOrder      Int
+  /** Underleverandør prises med innkjøp/fastpris og telles ikke som egne timer. */
+  subcontractor  Boolean     @default(false)
+  items          PriceItem[]
+  rates          TradeRate[]
 }
 
 model PriceList {
@@ -607,10 +609,10 @@ model PriceList {
   createdFromId     String?
   adjustmentPercent Decimal?        @db.Decimal(6, 2)
   vatRate           Decimal         @default(0.25) @db.Decimal(6, 4)
-  byggstartPercent  Decimal         @default(0.07) @db.Decimal(6, 4)
-  byggstartFactor   Decimal         @default(1.3) @db.Decimal(6, 3)
+  byggstartPercent  Decimal         @default(0.08) @db.Decimal(6, 4)
+  byggstartFactor   Decimal         @default(1) @db.Decimal(6, 3)
   mittanbudPercent  Decimal         @default(0.05) @db.Decimal(6, 4)
-  mittanbudFactor   Decimal         @default(1.3) @db.Decimal(6, 3)
+  mittanbudFactor   Decimal         @default(1) @db.Decimal(6, 3)
   extraCalloutNok   Decimal?        @db.Decimal(10, 2)
   tileAllowanceExVat Decimal?       @db.Decimal(10, 2)
   electricianCostFactor Decimal     @default(1.15) @db.Decimal(6, 4)
@@ -630,7 +632,7 @@ model TradeRate {
   trade                 Trade     @relation(fields: [tradeId], references: [id])
   hourlyRateSale        Decimal   @db.Decimal(10, 2)
   hourlyRateInternal    Decimal   @db.Decimal(10, 2)
-  calloutPrice          Decimal   @db.Decimal(10, 2)
+  calloutPrice          Decimal?  @db.Decimal(10, 2)
   defaultMaterialMarkup Decimal   @db.Decimal(6, 4)
 
   @@unique([priceListId, tradeId])

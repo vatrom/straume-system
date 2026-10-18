@@ -1,6 +1,7 @@
 import { prisma, type QuestionType } from "@straume/db";
-import { DomainError, TRADES } from "@straume/domain";
+import { DomainError, TRADE_CODES, TRADES } from "@straume/domain";
 import { audit } from "./audit";
+import { reorderTrades } from "./trades";
 import { assertAdmin } from "./roles";
 
 export type DraftSection = {
@@ -123,6 +124,12 @@ export async function saveDraft(user: { id: string; role: string }, sections: Dr
     }
   });
   await audit(user.id, "checklist.save", "checklist", draft.id);
+  const seen: string[] = [];
+  for (const section of sections) {
+    if (!seen.includes(section.tradeCode)) seen.push(section.tradeCode);
+  }
+  const rest = TRADE_CODES.filter((code) => !seen.includes(code));
+  await reorderTrades(user, [...seen, ...rest]);
   return draftVersion();
 }
 

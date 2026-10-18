@@ -43,9 +43,10 @@ describe("kalkylemotor", () => {
     }
     const lines = list.lines.map((line) => priceLineToCalc(line, quantities.get(line.code) ?? 0));
     const totals = calculateQuote({ lines, rates: list.rates, commercial: DEFAULT_COMMERCIAL, channel: "none" });
-    // Malen med standardmengder (omkrets 10 m, høyde 2,4 m, gulv 5 m²) gir 349 721 kr.
+    // Malen med standardmengder (omkrets 10 m, høyde 2,4 m, gulv 5 m²).
+    // Elektriker 1 150 og felles oppmøte 490 erstatter 1 190 og 450/500/550.
     // Noen enhetspriser i CSV-en er avrundet i forhold til formelen, innenfor ett øre per linje.
-    expect(Math.round(totals.totalIncVat)).toBe(349721);
+    expect(Math.round(totals.totalIncVat)).toBe(350346);
     expect(totals.vatNok).toBeCloseTo(totals.subtotalExVat * 0.25, 2);
     expect(totals.marginExVat).toBeLessThan(totals.spreadsheetMarginIncVat);
   });
@@ -75,10 +76,12 @@ describe("kalkylemotor", () => {
     expect(totals.lines.find((line) => line.code === "ROR-001")?.unitPriceExVat).toBe(3380);
     expect(totals.lines.find((line) => line.code === "EL-099")?.included).toBe(false);
     expect(totals.workExVat).toBe(25599);
-    expect(totals.channelExVat).toBe(2329.51);
-    expect(totals.subtotalExVat).toBe(28928.51);
-    expect(totals.vatNok).toBe(7232.13);
-    expect(totals.totalIncVat).toBe(36160.64);
+    expect(totals.channelPercent).toBe(0.08);
+    expect(totals.channelFactor).toBe(1);
+    expect(totals.channelExVat).toBe(2047.92);
+    expect(totals.subtotalExVat).toBe(28646.92);
+    expect(totals.vatNok).toBe(7161.73);
+    expect(totals.totalIncVat).toBe(35808.65);
     expect(totals.trades.map((trade) => trade.tradeCode)).toEqual(["riving", "tomrer", "elektriker", "rorlegger"]);
     const contribution = Math.round((totals.subtotalExVat - totals.costExVat) * 100) / 100;
     expect(totals.contributionExVat).toBe(contribution);
@@ -86,6 +89,36 @@ describe("kalkylemotor", () => {
     const wrong = (totals.totalIncVat - totals.costExVat) / totals.totalIncVat;
     expect(totals.spreadsheetMarginIncVat).toBeCloseTo(wrong, 6);
     expect(totals.marginExVat).not.toBeCloseTo(wrong, 2);
+  });
+
+  it("legger kildetillegg som prosent av sum eks. mva", () => {
+    const lines = [priceLineToCalc(item({ code: "TOM-001", tradeCode: "tomrer", salePriceOverride: 10000 }), 1)];
+    const byggstart = calculateQuote({ lines, rates, commercial: DEFAULT_COMMERCIAL, channel: "byggstart" });
+    expect(byggstart.channelName).toBe("Byggstart");
+    expect(byggstart.channelFactor).toBe(1);
+    expect(byggstart.channelExVat).toBe(800);
+    expect(byggstart.subtotalExVat).toBe(10800);
+    expect(byggstart.vatNok).toBe(2700);
+    expect(byggstart.totalIncVat).toBe(13500);
+    const mittanbud = calculateQuote({ lines, rates, commercial: DEFAULT_COMMERCIAL, channel: "mittanbud" });
+    expect(mittanbud.channelName).toBe("MittAnbud XL");
+    expect(mittanbud.channelPercent).toBe(0.05);
+    expect(mittanbud.channelExVat).toBe(500);
+    expect(mittanbud.subtotalExVat).toBe(10500);
+    expect(mittanbud.totalIncVat).toBe(13125);
+  });
+
+  it("holder underleverandør utenfor egne timer", () => {
+    const lines = [
+      priceLineToCalc(item({ code: "TOM-014", tradeCode: "tomrer", type: "hours", hoursPerUnit: 1 }), 4),
+      priceLineToCalc(item({ code: "EL-015", tradeCode: "elektriker", type: "hours", hoursPerUnit: 1, salePriceOverride: 1150 }), 2),
+    ];
+    const totals = calculateQuote({ lines, rates, channel: "none" });
+    expect(totals.hoursTotal).toBe(4);
+    const elektriker = totals.trades.find((trade) => trade.tradeCode === "elektriker");
+    expect(elektriker?.subcontractor).toBe(true);
+    expect(elektriker?.hours).toBe(0);
+    expect(elektriker?.sumExVat).toBe(2300);
   });
 
   it("slår opp på kode og avviser ukjent kode", () => {
@@ -172,7 +205,7 @@ describe("interne notater", () => {
     catalog,
     templates: [
       { key: "intro", name: "Innledning", kind: "intro", tradeCode: null, body: "Tilbudet er gyldig {{gyldighet.dager}} dager." },
-      { key: "epost.tilbud", name: "E-post", kind: "email", tradeCode: null, body: "Fliser for inntil {{flis.inntil}} kr/m². Time elektriker {{timepris.elektriker}} kr." },
+      { key: "epost.tilbud", name: "E-post", kind: "email", tradeCode: null, body: "Fliser for inntil {{flis.inntil.ink}} kr/m² inkl. mva ({{flis.inntil}} eks. mva). Time elektriker {{timepris.elektriker}} kr." },
     ],
     rates: rates as RateInput[],
     commercial: DEFAULT_COMMERCIAL,
@@ -193,7 +226,26 @@ describe("interne notater", () => {
     expect(blob).not.toContain("flisformat");
     expect(applied.leaked.length).toBeGreaterThan(0);
     expect(applied.totals.lines.find((line) => line.code === "EL-002")?.lineSumExVat).toBe(6040);
-    expect(draft.emailBody).toContain("sats ikke satt");
-    expect(draft.emailBody.replace(/\s/g, "")).toContain("1190");
+    const ordered = mockDraft({
+      ...request,
+      catalog: [
+        ...request.catalog,
+        item({ code: "ROR-001", tradeCode: "rorlegger", name: "Vannpunkt", salePriceOverride: 3380 }),
+      ],
+      answers: [
+        { prompt: "Vannpunkt", tradeCode: "rorlegger", value: 1, freeText: null, priceItemCode: "ROR-001", internalNote: null },
+        { prompt: "Antall downlights", tradeCode: "elektriker", value: 4, freeText: null, priceItemCode: "EL-002", internalNote: null },
+      ],
+      templates: [
+        { key: "fag.rorlegger", name: "Rørlegger", kind: "trade", tradeCode: "rorlegger", sortOrder: 40, body: "Rørlegger." },
+        { key: "fag.elektriker", name: "Elektriker", kind: "trade", tradeCode: "elektriker", sortOrder: 30, body: "Elektriker." },
+      ],
+    });
+    const text = ordered.customerText;
+    expect(text.indexOf("Elektriker.")).toBeGreaterThan(-1);
+    expect(text.indexOf("Elektriker.")).toBeLessThan(text.indexOf("Rørlegger."));
+    expect(draft.emailBody.replace(/\s/g, "")).toContain("500");
+    expect(draft.emailBody.replace(/\s/g, "")).toContain("400");
+    expect(draft.emailBody.replace(/\s/g, "")).toContain("1150");
   });
 });

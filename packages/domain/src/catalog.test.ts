@@ -93,13 +93,15 @@ describe("splitt og separat justering", () => {
   const csv = readFileSync(new URL("../../db/prisma/data/prisposter.csv", import.meta.url), "utf8");
   const list = priceListFromCsv(csv, { id: "mal", name: "Mal", validFrom: "2026-08-11" });
 
-  it("flagger elektrikerposter som bare har totalpris, og utleder timeposter", () => {
+  it("priser elektriker som underleverandør uten timer", () => {
     const downlight = list.lines.find((line) => line.code === "EL-002");
-    expect(downlight?.splitConfidence).toBe("uncertain");
+    expect(downlight?.splitConfidence).toBe("known");
     expect(downlight?.salePriceOverride).toBe(1510);
+    expect(downlight?.hoursPerUnit).toBe(0);
     const hours = list.lines.find((line) => line.code === "EL-015");
-    expect(hours?.splitConfidence).toBe("derived");
-    expect(hours?.hoursPerUnit).toBe(1);
+    expect(hours?.splitConfidence).toBe("known");
+    expect(hours?.hoursPerUnit).toBe(0);
+    expect(hours?.salePriceOverride).toBe(1150);
     const known = list.lines.find((line) => line.code === "TOM-004");
     expect(known?.splitConfidence).toBe("known");
     expect(known?.materialCost).toBeGreaterThan(0);
@@ -126,7 +128,7 @@ describe("splitt og separat justering", () => {
       materialPercent: 0,
       laborPercent: 5,
     }).next;
-    expect(labor.rates.find((rate) => rate.tradeCode === "elektriker")?.hourlyRateSale).toBeCloseTo(1190 * 1.05, 2);
+    expect(labor.rates.find((rate) => rate.tradeCode === "elektriker")?.hourlyRateSale).toBeCloseTo(1150 * 1.05, 2);
     expect(labor.lines.find((line) => line.code === "TOM-004")?.materialCost).toBe(gips.materialCost);
   });
 });

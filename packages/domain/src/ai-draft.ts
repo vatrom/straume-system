@@ -3,7 +3,7 @@ import { calculateQuote, priceLineToCalc } from "./calc";
 import { mergeTemplate, type MergeContext } from "./merge";
 import type { PriceLineInput, RateInput } from "./pricing";
 import { evalQuantity, type QuantityContext } from "./quantities";
-import { tradeName } from "./trades";
+import { TRADES, tradeName } from "./trades";
 
 export type DraftAnswer = {
   prompt: string;
@@ -19,7 +19,7 @@ export type DraftMedia = { id: string; kind: string; fileName: string | null; in
 
 export type DraftRoom = QuantityContext & { name: string };
 
-export type DraftTemplate = { key: string; name: string; kind: string; tradeCode: string | null; body: string };
+export type DraftTemplate = { key: string; name: string; kind: string; tradeCode: string | null; body: string; sortOrder?: number };
 
 export type DraftRequest = {
   mode: "quote" | "change";
@@ -160,7 +160,8 @@ export function mockDraft(request: DraftRequest): AiDraftShape {
       }
       const fromFormula = formulaQuantity(line, room);
       const quantity = decision.quantity ?? fromFormula ?? 1;
-      const uncertain = decision.quantity == null && fromFormula == null && line.type === "hours";
+      const subcontractor = Boolean(request.rates.find((rate) => rate.tradeCode === line.tradeCode)?.subcontractor);
+      const uncertain = !subcontractor && decision.quantity == null && fromFormula == null && line.type === "hours";
       push({
         code: line.code,
         quantity,
@@ -254,7 +255,8 @@ function composeCustomerText(request: DraftRequest, choices: AiLineChoice[], mer
     const trade = item?.tradeCode ?? "annet";
     byTrade.set(trade, [...(byTrade.get(trade) ?? []), choice]);
   }
-  for (const [trade, rows] of byTrade) {
+  const ordered = [...byTrade.entries()].sort((a, b) => tradeRank(request, a[0]) - tradeRank(request, b[0]));
+  for (const [trade, rows] of ordered) {
     const template = request.templates.find((item) => item.kind === "trade" && item.tradeCode === trade);
     const list = rows
       .map((choice) => {
@@ -269,6 +271,13 @@ function composeCustomerText(request: DraftRequest, choices: AiLineChoice[], mer
   const visibleNotes = request.notes.filter((note) => !note.internal).map((note) => note.body.trim()).filter(Boolean);
   if (visibleNotes.length) parts.push(visibleNotes.join("\n"));
   return parts.join("\n\n");
+}
+
+function tradeRank(request: DraftRequest, trade: string): number {
+  const template = request.templates.find((item) => item.kind === "trade" && item.tradeCode === trade);
+  if (template?.sortOrder != null) return template.sortOrder;
+  const index = TRADES.findIndex((item) => item.code === trade);
+  return index === -1 ? 1000 : index;
 }
 
 function composeReservations(request: DraftRequest, merge: MergeContext): string {

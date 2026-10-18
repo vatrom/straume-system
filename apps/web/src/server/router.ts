@@ -5,7 +5,8 @@ import { clearSessionCookie, setSessionCookie, signSession, withUser, type Sessi
 import { addActivity, addOption, addStage, createDeal, createPipeline, createProjectFromDeal, dealsForBoard, editOption, editStage, getDeal, listOptions, listOrganizations, listPeople, listPipelines, loseDeal, orderStages, removeOption, removePipeline, removeStage, saveOrganization, savePerson, staff, toggleActivity, updateDeal, updatePipeline, winDeal } from "./crm";
 import { checklistEditor, publishChecklist, saveDraft, type DraftSection } from "./checklists";
 import { HttpError, json, jsonError, readJson } from "./http";
-import { activateList, addItem, adjustComponentVersion, adjustPriceList, archiveItem, editLine, listPriceLists, priceChangeLog, priceListExcel, priceListView } from "./price-admin";
+import { activateList, addItem, adjustComponentVersion, adjustPriceList, archiveItem, editLine, listPriceLists, priceChangeLog, priceListExcel, priceListView, updateCommercial, updateTradeRate } from "./price-admin";
+import { listTrades, reorderTrades, setTradeSubcontractor } from "./trades";
 import { applyPriceFile, itemBom, listProducts, listSuppliers, previewPriceFile, saveItemBom, saveSupplier } from "./catalog";
 import { addQuoteLine, createChangeDraft, createQuoteDraft, decideChange, emailQuote, listTemplates, plannedHours, quotePdf, quoteView, quotesFor, removeQuoteLine, reviseQuote, saveTemplate, transitionQuote, updateQuote } from "./quotes";
 import { dashboardView, deleteGoal, deleteReport, drilldown, exportInsights, goalBoard, insightMeta, queryInsights, saveGoal, saveReport, setPeerVisibility, toCsv, toExcelXml } from "./insights";
@@ -258,6 +259,17 @@ async function dispatch(req: Request, slug: string[], user: SessionUser): Promis
     });
   }
   if (a === "price-lists" && b && c === "log" && method === "GET") return json(await priceChangeLog(b), 200, req);
+  if (a === "price-lists" && b && c === "commercial" && method === "PATCH") return json(await updateCommercial(user, b, await readJson(req)), 200, req);
+  if (a === "price-lists" && b && c === "rates" && d && method === "PATCH") return json(await updateTradeRate(user, b, d, await readJson(req)), 200, req);
+  if (a === "trades" && !b && method === "GET") return json(await listTrades(), 200, req);
+  if (a === "trades" && b === "order" && method === "PUT") {
+    const body = await readJson<{ codes?: string[] }>(req);
+    return json(await reorderTrades(user, body.codes ?? []), 200, req);
+  }
+  if (a === "trades" && b && method === "PATCH") {
+    const body = await readJson<{ subcontractor?: boolean }>(req);
+    return json(await setTradeSubcontractor(user, b, Boolean(body.subcontractor)), 200, req);
+  }
   if (a === "price-lists" && b && c === "components" && method === "POST") {
     return json(await adjustComponentVersion(user, b, await readJson(req)), 201, req);
   }

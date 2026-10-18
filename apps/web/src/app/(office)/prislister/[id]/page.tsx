@@ -27,8 +27,8 @@ export default async function PriceListPage({ params }: { params: Promise<{ id: 
         {list.hoursByTrade.map((trade) => (
           <div className="card kpi" key={trade.tradeCode}>
             <div className="label">{trade.name}</div>
-            <strong>{trade.hours.toLocaleString("nb-NO")} t</strong>
-            <div className="muted">timer per enhet, summert</div>
+            <strong>{trade.subcontractor ? "Underleverandør" : `${trade.hours.toLocaleString("nb-NO")} t`}</strong>
+            <div className="muted">{trade.subcontractor ? "egne timer telles ikke" : "timer per enhet, summert"}</div>
           </div>
         ))}
       </div>
@@ -41,6 +41,18 @@ export default async function PriceListPage({ params }: { params: Promise<{ id: 
         <PriceEditor
           listId={list.id}
           status={list.status}
+          commercial={{
+            vatRate: list.commercial?.vatRate ?? 0.25,
+            byggstartPercent: list.commercial?.byggstartPercent ?? 0.08,
+            mittanbudPercent: list.commercial?.mittanbudPercent ?? 0.05,
+            extraCalloutNok: list.commercial?.extraCalloutNok ?? 490,
+            tileAllowanceExVat: list.commercial?.tileAllowanceExVat ?? 400,
+          }}
+          rates={list.rates.map((rate) => ({
+            tradeCode: rate.tradeCode,
+            hourlyRateSale: rate.hourlyRateSale,
+            calloutPrice: rate.calloutPrice,
+          }))}
           lines={list.lines.map((line) => ({
             itemId: line.itemId,
             code: line.code,

@@ -21,11 +21,19 @@ function rate(ctx: MergeContext, trade: string, field: "hourlyRateSale" | "callo
 
 function valueOf(key: string, ctx: MergeContext): string | null {
   const [group, name] = key.split(".");
+  if (key === "flis.inntil.ink") {
+    const ex = ctx.commercial.tileAllowanceExVat;
+    if (ex == null) return null;
+    return money(ex * (1 + ctx.commercial.vatRate));
+  }
+  if (key === "flis.inntil") return money(ctx.commercial.tileAllowanceExVat);
   if (group === "timepris" && name === "montering") return money(ctx.commercial.assemblyHourlyNok);
   if (group === "timepris" && name) return money(rate(ctx, name, "hourlyRateSale"));
   if (group === "oppmote" && name === "ekstra") return money(ctx.commercial.extraCalloutNok);
-  if (group === "oppmote" && name) return money(rate(ctx, name, "calloutPrice"));
-  if (group === "flis" && name === "inntil") return money(ctx.commercial.tileAllowanceExVat);
+  if (group === "oppmote" && name) {
+    const found = ctx.rates.find((item) => item.tradeCode === name);
+    return money(found?.calloutPrice ?? ctx.commercial.extraCalloutNok);
+  }
   if (key === "mva.prosent") return ctx.commercial.vatRate != null ? String(Math.round(ctx.commercial.vatRate * 1000) / 10) : null;
   if (key === "provisjon.byggstart") return String(Math.round(ctx.commercial.byggstartPercent * 1000) / 10);
   if (key === "provisjon.mittanbud") return String(Math.round(ctx.commercial.mittanbudPercent * 1000) / 10);

@@ -17,7 +17,7 @@ const TEMPLATES: { key: string; name: string; kind: string; tradeCode?: string; 
   },
   { key: "fag.riving", name: "Riving", kind: "trade", tradeCode: "riving", sortOrder: 10, body: "Riving og bortkjøring." },
   { key: "fag.tomrer", name: "Tømrer", kind: "trade", tradeCode: "tomrer", sortOrder: 20, body: "Tømrerarbeid. Timepris {{timepris.tomrer}} kr eks. mva." },
-  { key: "fag.elektriker", name: "Elektriker", kind: "trade", tradeCode: "elektriker", sortOrder: 30, body: "Elektriker. Timepris {{timepris.elektriker}} kr eks. mva. Oppmøte {{oppmote.elektriker}} kr." },
+  { key: "fag.elektriker", name: "Elektriker", kind: "trade", tradeCode: "elektriker", sortOrder: 30, body: "Elektriker utføres av underleverandør, med fast pris og uten egne timer. Timepris {{timepris.elektriker}} kr eks. mva. Ekstra oppmøte {{oppmote.ekstra}} kr eks. mva." },
   { key: "fag.rorlegger", name: "Rørlegger", kind: "trade", tradeCode: "rorlegger", sortOrder: 40, body: "Rørlegger. Timepris {{timepris.rorlegger}} kr eks. mva." },
   { key: "fag.murer", name: "Murer", kind: "trade", tradeCode: "murer", sortOrder: 50, body: "Flis og membran. Timepris {{timepris.murer}} kr eks. mva." },
   { key: "fag.maler", name: "Maler", kind: "trade", tradeCode: "maler", sortOrder: 60, body: "Maler. Timepris {{timepris.maler}} kr eks. mva." },
@@ -26,21 +26,21 @@ const TEMPLATES: { key: string; name: string; kind: string; tradeCode?: string; 
     name: "Forbehold",
     kind: "reservation",
     sortOrder: 70,
-    body: "Skjulte forhold bak eksisterende flater er ikke inkludert. Ekstra oppmøte utover avtalt fremdrift prises med {{oppmote.ekstra}} kr når satsen er avklart.",
+    body: "Skjulte forhold bak eksisterende flater er ikke inkludert. Ekstra oppmøte utover avtalt fremdrift prises med {{oppmote.ekstra}} kr eks. mva per oppmøte.",
   },
   {
     key: "spesifikasjon",
     name: "Spesifikasjon",
     kind: "spec",
     sortOrder: 80,
-    body: "Flis som kunden holder, er inkludert inntil {{flis.inntil}} kr per m² eks. mva der satsen er satt.\n{{#flis.inntil}}Flisgodtgjørelsen følger prislisten.{{/flis.inntil}}\n{{#oppmote.ekstra}}Ekstra oppmøte følger prislisten.{{/oppmote.ekstra}}\nMontering av innredning kunden leverer: {{timepris.montering}} kr per time.",
+    body: "Flis som kunden holder, er inkludert inntil {{flis.inntil.ink}} kr per m² inkl. mva ({{flis.inntil}} kr eks. mva).\n{{#flis.inntil}}Flisgodtgjørelsen følger prislisten.{{/flis.inntil}}\n{{#oppmote.ekstra}}Ekstra oppmøte følger prislisten.{{/oppmote.ekstra}}\nMontering av innredning kunden leverer: {{timepris.montering}} kr per time.",
   },
   {
     key: "epost.tilbud",
     name: "E-post tilbud",
     kind: "email",
     sortOrder: 90,
-    body: "Hei,\n\nVedlagt ligger tilbudet. Summen inkludert mva er {{total.ink}} kr. Timepris elektriker er {{timepris.elektriker}} kr eks. mva. Flisgodtgjørelse: {{flis.inntil}} kr. Ekstra oppmøte: {{oppmote.ekstra}} kr.\n\nVennlig hilsen\nStraume Våtrom",
+    body: "Hei,\n\nVedlagt ligger tilbudet. Summen inkludert mva er {{total.ink}} kr. Timepris elektriker er {{timepris.elektriker}} kr eks. mva. Flisgodtgjørelse: {{flis.inntil.ink}} kr inkl. mva. Ekstra oppmøte: {{oppmote.ekstra}} kr eks. mva.\n\nVennlig hilsen\nStraume Våtrom",
   },
   {
     key: "epost.endring",
@@ -71,7 +71,7 @@ export async function ensurePhase2(prisma: PrismaClient) {
   for (const template of TEMPLATES) {
     await prisma.textTemplate.upsert({
       where: { key: template.key },
-      update: { name: template.name, kind: template.kind, tradeCode: template.tradeCode ?? null, sortOrder: template.sortOrder },
+      update: { name: template.name, kind: template.kind, body: template.body },
       create: { ...template, tradeCode: template.tradeCode ?? null },
     });
   }

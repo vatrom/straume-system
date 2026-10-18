@@ -1,6 +1,5 @@
 import { nok } from "@/lib/format";
 import { quoteView } from "@/server/quotes";
-import { TRADES } from "@straume/domain";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { QuoteEditor } from "./editor";
@@ -13,7 +12,7 @@ export default async function QuotePage({ params }: { params: Promise<{ id: stri
   } catch {
     notFound();
   }
-  const hours = TRADES.map((trade) => ({ name: trade.name, hours: quote.hoursByTrade[trade.code] ?? 0 })).filter((trade) => trade.hours > 0);
+  const hours = quote.tradeHours;
   return (
     <>
       <div className="top">
@@ -39,10 +38,12 @@ export default async function QuotePage({ params }: { params: Promise<{ id: stri
       </div>
       <section className="card" style={{ margin: "16px 0" }}>
         <h2>Planlagte timer</h2>
-        {hours.length === 0 ? <p className="muted">Ingen timer er fordelt på fag. Poster med bare salgspris, typisk elektriker, står med 0 timer til de splittes.</p> : null}
+        {hours.length === 0 ? <p className="muted">Ingen fag er med i tilbudet.</p> : null}
         <div className="row">
           {hours.map((trade) => (
-            <div key={trade.name}><strong>{trade.name}</strong> {trade.hours.toLocaleString("nb-NO")} t</div>
+            <div key={trade.code}>
+              <strong>{trade.name}</strong> {trade.subcontractor ? "Underleverandør" : `${trade.hours.toLocaleString("nb-NO")} t`}
+            </div>
           ))}
         </div>
       </section>

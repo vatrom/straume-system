@@ -56,7 +56,7 @@ async function actorName(user: Actor) {
 
 async function templates() {
   const rows = await prisma.textTemplate.findMany({ orderBy: { sortOrder: "asc" } });
-  return rows.map((row) => ({ key: row.key, name: row.name, kind: row.kind, tradeCode: row.tradeCode, body: row.body }));
+  return rows.map((row) => ({ key: row.key, name: row.name, kind: row.kind, tradeCode: row.tradeCode, body: row.body, sortOrder: row.sortOrder }));
 }
 
 export async function listTemplates() {
@@ -321,6 +321,15 @@ export async function quoteView(id: string) {
   });
   if (!quote) throw new DomainError("Fant ikke tilbudet");
   const family = await prisma.quote.findMany({ where: { familyId: quote.familyId }, select: { id: true, revision: true, status: true }, orderBy: { createdAt: "asc" } });
+  const trades = await prisma.trade.findMany({ orderBy: { sortOrder: "asc" } });
+  const rank = new Map(trades.map((trade) => [trade.code, trade.sortOrder]));
+  const subcontractor = new Map(trades.map((trade) => [trade.code, trade.subcontractor]));
+  const storedHours = (quote.hoursByTrade ?? {}) as Record<string, number>;
+  const lines = [...quote.lines].sort((a, b) => (rank.get(a.tradeCode) ?? 99) - (rank.get(b.tradeCode) ?? 99) || a.sortOrder - b.sortOrder);
+  const ownHours = lines.reduce((sum, line) => {
+    if (!line.included || line.internal || subcontractor.get(line.tradeCode)) return sum;
+    return sum + (dec(line.hours) ?? 0);
+  }, 0);
   return {
     id: quote.id,
     title: quote.title,
@@ -344,21 +353,33 @@ export async function quoteView(id: string) {
     costExVat: dec(quote.costExVat) ?? 0,
     contributionExVat: dec(quote.contributionExVat) ?? 0,
     marginExVat: dec(quote.marginExVat) ?? 0,
-    hoursTotal: dec(quote.hoursTotal) ?? 0,
-    hoursByTrade: (quote.hoursByTrade ?? {}) as Record<string, number>,
+    hoursTotal: ownHours,
+    hoursByTrade: storedHours,
+    tradeHours: trades
+      .filter((trade) => lines.some((line) => line.tradeCode === trade.code))
+      .map((trade) => ({
+        code: trade.code,
+        name: trade.name,
+        subcontractor: trade.subcontractor,
+        hours: trade.subcontractor
+          ? 0
+          : lines
+              .filter((line) => line.included && !line.internal && line.tradeCode === trade.code)
+              .reduce((sum, line) => sum + (dec(line.hours) ?? 0), 0),
+      })),
     flags: Array.isArray(quote.flags) ? quote.flags.filter((flag): flag is string => typeof flag === "string") : [],
     ai: quote.aiLogs[0] ? { provider: quote.aiLogs[0].provider, model: quote.aiLogs[0].model, costUsd: dec(quote.aiLogs[0].costUsd) ?? 0 } : null,
     personEmail: quote.deal?.person?.email ?? null,
-    lines: quote.lines.map((line) => ({
+    lines: lines.map((line) => ({
       id: line.id,
       code: line.code,
       tradeCode: line.tradeCode,
-      tradeName: TRADES.find((trade) => trade.code === line.tradeCode)?.name ?? line.tradeCode,
+      tradeName: trades.find((trade) => trade.code === line.tradeCode)?.name ?? TRADES.find((trade) => trade.code === line.tradeCode)?.name ?? line.tradeCode,
       description: line.description,
       unit: line.unit,
       quantity: dec(line.quantity) ?? 0,
       unitPriceExVat: dec(line.unitPriceExVat) ?? 0,
-      hours: dec(line.hours) ?? 0,
+      hours: subcontractor.get(line.tradeCode) ? 0 : (dec(line.hours) ?? 0),
       lineSumExVat: dec(line.lineSumExVat) ?? 0,
       optional: line.optional,
       included: line.included,
@@ -702,10 +723,14 @@ export async function plannedHours(projectId: string) {
     },
   });
   const changes = await prisma.changeOrder.findMany({ where: { projectId, status: "approved" } });
+  const subcontractors = new Set((await prisma.trade.findMany({ where: { subcontractor: true }, select: { code: true } })).map((trade) => trade.code));
   const byTrade: Record<string, number> = {};
   for (const quote of quotes) {
     const map = (quote.hoursByTrade ?? {}) as Record<string, number>;
-    for (const [trade, hours] of Object.entries(map)) byTrade[trade] = (byTrade[trade] ?? 0) + Number(hours || 0);
+    for (const [trade, hours] of Object.entries(map)) {
+      if (subcontractors.has(trade)) continue;
+      byTrade[trade] = (byTrade[trade] ?? 0) + Number(hours || 0);
+    }
   }
   const changeHours = changes.reduce((sum, change) => sum + (dec(change.hoursTotal) ?? 0), 0);
   return {

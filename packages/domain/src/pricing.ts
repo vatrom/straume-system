@@ -32,8 +32,11 @@ export type RateInput = {
   tradeCode: string;
   hourlyRateSale: number;
   hourlyRateInternal: number;
-  calloutPrice: number;
+  /** Null bruker den felles satsen for ekstra oppmøte. Et tall er overstyring for dette faget. */
+  calloutPrice: number | null;
   defaultMaterialMarkup: number;
+  /** Underleverandør prises uten egne timer. */
+  subcontractor?: boolean;
 };
 
 /** Satser som følger prislisten, ikke den enkelte varelinjen. */
@@ -43,9 +46,9 @@ export type CommercialSettings = {
   byggstartFactor: number;
   mittanbudPercent: number;
   mittanbudFactor: number;
-  /** Felles «ekstra oppmøte» i tilbudsteksten. Null betyr at satsen ikke er avklart. */
+  /** Felles ekstra oppmøte eks. mva. Per fag kan overstyres med calloutPrice. */
   extraCalloutNok: number | null;
-  /** Beløp som tilbudsteksten sier er inkludert flis per m². Null betyr ikke avklart. */
+  /** Standardpris for flis eks. mva per m². Inkl. mva er dette ganger (1 + mva). */
   tileAllowanceExVat: number | null;
   /** Etterkalkylen antar elektriker-kost = salgspris / denne faktoren når linjen mangler kostoppdeling. */
   electricianCostFactor: number;
@@ -55,12 +58,12 @@ export type CommercialSettings = {
 
 export const DEFAULT_COMMERCIAL: CommercialSettings = {
   vatRate: 0.25,
-  byggstartPercent: 0.07,
-  byggstartFactor: 1.3,
+  byggstartPercent: 0.08,
+  byggstartFactor: 1,
   mittanbudPercent: 0.05,
-  mittanbudFactor: 1.3,
-  extraCalloutNok: null,
-  tileAllowanceExVat: null,
+  mittanbudFactor: 1,
+  extraCalloutNok: 490,
+  tileAllowanceExVat: 400,
   electricianCostFactor: 1.15,
   assemblyHourlyNok: null,
 };
@@ -77,14 +80,18 @@ export type PriceListInput = {
 };
 
 export const DEFAULT_TRADE_RATES: RateInput[] = [
-  { tradeCode: "riving", hourlyRateSale: 930, hourlyRateInternal: 395, calloutPrice: 450, defaultMaterialMarkup: 0.2 },
-  { tradeCode: "tomrer", hourlyRateSale: 910, hourlyRateInternal: 395, calloutPrice: 450, defaultMaterialMarkup: 0.3 },
-  { tradeCode: "elektriker", hourlyRateSale: 1190, hourlyRateInternal: 395, calloutPrice: 550, defaultMaterialMarkup: 0 },
-  { tradeCode: "rorlegger", hourlyRateSale: 990, hourlyRateInternal: 395, calloutPrice: 450, defaultMaterialMarkup: 0.4 },
-  { tradeCode: "murer", hourlyRateSale: 910, hourlyRateInternal: 395, calloutPrice: 450, defaultMaterialMarkup: 0.4 },
-  { tradeCode: "maler", hourlyRateSale: 910, hourlyRateInternal: 395, calloutPrice: 450, defaultMaterialMarkup: 0.4 },
-  { tradeCode: "annet", hourlyRateSale: 0, hourlyRateInternal: 0, calloutPrice: 0, defaultMaterialMarkup: 0 },
+  { tradeCode: "riving", hourlyRateSale: 930, hourlyRateInternal: 395, calloutPrice: null, defaultMaterialMarkup: 0.2, subcontractor: false },
+  { tradeCode: "tomrer", hourlyRateSale: 910, hourlyRateInternal: 395, calloutPrice: null, defaultMaterialMarkup: 0.3, subcontractor: false },
+  { tradeCode: "elektriker", hourlyRateSale: 1150, hourlyRateInternal: 395, calloutPrice: null, defaultMaterialMarkup: 0, subcontractor: true },
+  { tradeCode: "rorlegger", hourlyRateSale: 990, hourlyRateInternal: 395, calloutPrice: null, defaultMaterialMarkup: 0.4, subcontractor: false },
+  { tradeCode: "murer", hourlyRateSale: 910, hourlyRateInternal: 395, calloutPrice: null, defaultMaterialMarkup: 0.4, subcontractor: false },
+  { tradeCode: "maler", hourlyRateSale: 910, hourlyRateInternal: 395, calloutPrice: null, defaultMaterialMarkup: 0.4, subcontractor: false },
+  { tradeCode: "annet", hourlyRateSale: 0, hourlyRateInternal: 0, calloutPrice: null, defaultMaterialMarkup: 0, subcontractor: false },
 ];
+
+/** Timepris som stod i de gamle tekstmalene og i regnearkets elektrikerlinjer. Erstattes av fagsatsen. */
+const LEGACY_ELECTRICIAN_HOUR = 1190;
+const LEGACY_CALLOUTS = new Set([450, 500, 550]);
 
 const TYPE_MAP: Record<string, PriceItemType> = {
   timer: "hours",
@@ -135,6 +142,7 @@ export function computeSalePrice(line: PriceLineInput, rates: RateInput[]): numb
   const rate = rates.find((item) => item.tradeCode === line.tradeCode);
   if (!rate) throw new DomainError(`Mangler fagsats for ${line.tradeCode}`);
   const markup = line.materialMarkup ?? rate.defaultMaterialMarkup;
+  if (rate.subcontractor) return roundMoney(line.materialCost * (1 + markup));
   const hourly = line.hourlyRateOverride ?? rate.hourlyRateSale;
   return roundMoney(line.materialCost * (1 + markup) + line.hoursPerUnit * hourly);
 }
@@ -205,15 +213,28 @@ export function lineFromSpreadsheetRow(row: SpreadsheetPriceRow, rates: RateInpu
       notes.push(`Materiell utledet fra formelen ${row.materialkost_formel.trim()}.`);
     }
   }
+  if (rate.subcontractor && type !== "freetext" && type !== "percent_addon" && type !== "callout") {
+    draft.hoursPerUnit = 0;
+    draft.hourlyRateOverride = null;
+    const price = type === "hours" && sheetPrice === LEGACY_ELECTRICIAN_HOUR ? rate.hourlyRateSale : sheetPrice;
+    if (price != null) draft.salePriceOverride = roundMoney(price);
+    draft.splitConfidence = "known";
+    draft.splitNote = [...notes, "Underleverandør. Fast salgspris uten egne timer."].filter(Boolean).join(" ");
+    return draft;
+  }
+  if (type === "callout") {
+    const common = rate.calloutPrice ?? DEFAULT_COMMERCIAL.extraCalloutNok;
+    if (common != null && (sheetPrice == null || LEGACY_CALLOUTS.has(sheetPrice))) draft.salePriceOverride = common;
+    draft.splitConfidence = "known";
+    draft.splitNote = [...notes, "Oppmøte bruker felles sats, med mindre faget har en overstyring."].filter(Boolean).join(" ");
+    return draft;
+  }
   if (!hasSplit && type === "hours" && sheetPrice != null) {
     draft.hoursPerUnit = 1;
     draft.materialCost = 0;
     draft.hourlyRateOverride = sheetPrice !== rate.hourlyRateSale ? sheetPrice : null;
     splitConfidence = "derived";
     notes.push("Utledet som én time fra totalpris. Kontroller timepris.");
-  } else if (!hasSplit && type === "callout") {
-    splitConfidence = "known";
-    notes.push("Oppmøte er en fast sats, ikke timer eller materiell.");
   } else if (!hasSplit && type !== "freetext" && type !== "percent_addon") {
     splitConfidence = "uncertain";
     notes.push("Kun totalpris i regnearket. Timer og materiell må kontrolleres manuelt.");
@@ -246,6 +267,7 @@ export function priceListFromCsv(csv: string, meta: { id: string; name: string; 
     validFrom: meta.validFrom,
     validTo: null,
     status: "active",
+    commercial: { ...DEFAULT_COMMERCIAL },
     lines,
     rates: DEFAULT_TRADE_RATES.map((rate) => ({ ...rate })),
   };
@@ -325,7 +347,7 @@ export function createAdjustedVersion(
         ...rate,
         hourlyRateSale: roundMoney(rate.hourlyRateSale * factor),
         hourlyRateInternal: roundMoney(rate.hourlyRateInternal * factor),
-        calloutPrice: roundMoney(rate.calloutPrice * factor),
+        calloutPrice: rate.calloutPrice == null ? null : roundMoney(rate.calloutPrice * factor),
       };
     }),
   };
@@ -399,7 +421,7 @@ export function adjustComponents(
         ...rate,
         hourlyRateSale: roundMoney(rate.hourlyRateSale * laborFactor),
         hourlyRateInternal: roundMoney(rate.hourlyRateInternal * laborFactor),
-        calloutPrice: roundMoney(rate.calloutPrice * laborFactor),
+        calloutPrice: rate.calloutPrice == null ? null : roundMoney(rate.calloutPrice * laborFactor),
       };
     }),
   };

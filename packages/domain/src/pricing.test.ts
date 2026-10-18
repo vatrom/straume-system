@@ -65,7 +65,7 @@ describe("import fra regneark", () => {
     const fibo = list.lines.find((item) => item.code === "TOM-001");
     expect(computeSalePrice(fibo!, rates)).toBe(1615.04);
     const callout = list.lines.find((item) => item.code === "TOM-018");
-    expect(callout?.salePriceOverride).toBe(450);
+    expect(callout?.salePriceOverride).toBe(490);
     const diverse = list.lines.find((item) => item.code === "TOM-019");
     expect(diverse?.salePriceOverride).toBe(890);
     const downlight = list.lines.find((item) => item.code === "EL-002");
@@ -91,7 +91,7 @@ describe("import fra regneark", () => {
     expect(previous.validTo).toBe("2026-12-31");
     expect(next.status).toBe("draft");
     expect(next.lines.find((item) => item.code === "RIV-002")!.materialCost).toBeCloseTo(before * 1.05, 4);
-    expect(next.lines.find((item) => item.code === "TOM-018")!.salePriceOverride).toBe(472.5);
+    expect(next.lines.find((item) => item.code === "TOM-018")!.salePriceOverride).toBe(514.5);
     expect(next.lines.find((item) => item.code === "EL-002")!.salePriceOverride).toBe(1510);
     expect(next.lines.find((item) => item.code === "ANN-002")!.salePriceOverride).toBe(0.07);
     expect(next.lines.map((item) => item.code)).toEqual(list.lines.map((item) => item.code));

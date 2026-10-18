@@ -442,7 +442,7 @@ export async function projectDetail(id: string) {
       phase: true,
       board: { include: { phases: { orderBy: { sortOrder: "asc" } } } },
       deal: true,
-      changes: { orderBy: { createdAt: "desc" } },
+      changes: { orderBy: { createdAt: "desc" }, include: { lines: { orderBy: { sortOrder: "asc" } } } },
       documents: { orderBy: { createdAt: "desc" }, include: { uploadedBy: true } },
       floors: {
         where: { deletedAt: null },

@@ -24,6 +24,10 @@ const KINDS: { value: InsightSpec["kind"]; label: string }[] = [
   { value: "cycle", label: "Salgssyklus" },
   { value: "lost_reasons", label: "Tapsgrunner" },
   { value: "activity", label: "Aktivitet per selger" },
+  { value: "quotes", label: "Tilbud" },
+  { value: "quote_margin", label: "Margin på tilbud" },
+  { value: "quote_hit", label: "Hitrate tilbud til vunnet" },
+  { value: "planned_hours", label: "Planlagte timer" },
 ];
 
 const GROUPS: { value: InsightSpec["groupBy"]; label: string }[] = [

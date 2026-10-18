@@ -1,8 +1,12 @@
+import { DraftButton } from "@/app/(office)/tilbud/draft-button";
 import { CompleteButton, CustomerPreview, ChangeForm, DocumentForm, ProjectForm, StartDateForm, WinnerButton } from "./actions";
+import { ChangeActions } from "./change-actions";
+import { ChangeDraftForm } from "./change-draft";
 import { nok } from "@/lib/format";
 import { staff } from "@/server/crm";
 import { dec, isoDate } from "@/server/dates";
 import { projectDetail } from "@/server/projects";
+import { plannedHours, quotesFor } from "@/server/quotes";
 import { sectionToSvg, sketchToSvg, type Sketch } from "@straume/domain";
 import Link from "next/link";
 
@@ -20,6 +24,8 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
   const { id } = await params;
   const { project, conflicts } = await projectDetail(id);
   const users = await staff();
+  const hours = await plannedHours(id);
+  const quotes = await quotesFor({ projectId: id, dealId: project.dealId });
   const person = project.person ? `${project.person.firstName} ${project.person.lastName}` : "Ingen person";
   const approved = project.changes.filter((change) => change.status === "approved").reduce((sum, change) => sum + (dec(change.amountNok) ?? 0), 0);
   return (
@@ -37,6 +43,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
         </div>
         <div className="row">
           {project.deal ? <Link className="btn" href={`/avtaler/${project.deal.id}`}>Salgsavtale</Link> : null}
+          {project.inspections.length ? <DraftButton projectId={project.id} dealId={project.dealId ?? undefined} /> : null}
           <CompleteButton projectId={project.id} status={project.status} />
           <WinnerButton projectId={project.id} />
         </div>
@@ -67,7 +74,26 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
           <div className="label">Befaringer</div>
           <strong>{project.inspections.length}</strong>
         </div>
+        <div className="card kpi">
+          <div className="label">Planlagte timer</div>
+          <strong>{hours.hoursTotal.toLocaleString("nb-NO")}</strong>
+        </div>
       </div>
+      <section className="card stack" style={{ marginBottom: 16 }}>
+        <h2>Tilbud og timer</h2>
+        {quotes.length === 0 ? <p className="muted">Ingen tilbud er knyttet til prosjektet.</p> : null}
+        {quotes.map((quote) => (
+          <div key={quote.id}>
+            <Link href={`/tilbud/${quote.id}`}>{quote.title} rev. {quote.revision}</Link>
+            <span className="muted"> · {quote.status}</span>
+          </div>
+        ))}
+        <div className="row">
+          {Object.entries(hours.byTrade).map(([trade, value]) => (
+            <span key={trade}>{trade}: {Number(value).toLocaleString("nb-NO")} t</span>
+          ))}
+        </div>
+      </section>
       <div className="grid-2">
         <section className="card">
           <h2>Oppdrag</h2>
@@ -96,6 +122,14 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
             <div key={change.id}>
               <strong>{change.title}</strong> · {CHANGE[change.status] ?? change.status} · {nok(dec(change.amountNok))}
               {change.description ? <div>{change.description}</div> : null}
+              {change.lines?.map((line) => (
+                <div key={line.id} className="muted">
+                  {line.code} {line.description}: {dec(line.quantity)?.toLocaleString("nb-NO")} {line.unit}
+                  {line.rationale ? ` · ${line.rationale}` : ""}
+                  {line.uncertain ? " · usikker" : ""}
+                </div>
+              ))}
+              <ChangeActions id={change.id} status={change.status} />
               {change.internalNote ? (
                 <div className="note-internal muted">
                   <span className="badge warn">Internt</span> {change.internalNote}
@@ -104,6 +138,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
             </div>
           ))}
           <ChangeForm projectId={project.id} />
+          <ChangeDraftForm projectId={project.id} />
         </section>
       </div>
       <section className="card stack" style={{ marginTop: 16 }}>

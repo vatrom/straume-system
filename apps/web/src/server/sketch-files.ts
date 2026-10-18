@@ -99,20 +99,35 @@ function pdfEscape(value: string): string {
   return out;
 }
 
-export function textPdf(title: string, lines: string[]): Buffer {
+function pageStream(title: string, lines: string[]): string {
   const commands = ["BT", "/F1 16 Tf", "48 800 Td", `(${pdfEscape(title)}) Tj`, "/F1 11 Tf", "0 -28 Td"];
-  for (const line of lines.slice(0, 48)) {
+  for (const line of lines.slice(0, 42)) {
     commands.push(`(${pdfEscape(line)}) Tj`, "0 -16 Td");
   }
   commands.push("ET");
-  const stream = commands.join("\n");
-  const objects = [
+  return commands.join("\n");
+}
+
+export function textPdf(title: string, lines: string[]): Buffer {
+  return pagesPdf([{ title, lines }]);
+}
+
+export function pagesPdf(pages: { title: string; lines: string[] }[]): Buffer {
+  const chunks = pages.length ? pages : [{ title: "Tom", lines: [] }];
+  const streams = chunks.map((page) => pageStream(page.title, page.lines));
+  const fontId = 3 + streams.length * 2;
+  const objects: string[] = [
     "<< /Type /Catalog /Pages 2 0 R >>",
-    "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
-    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
-    `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`,
-    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    `<< /Type /Pages /Count ${streams.length} /Kids [${streams.map((_, index) => `${3 + index * 2} 0 R`).join(" ")}] >>`,
   ];
+  streams.forEach((stream, index) => {
+    const contentId = 4 + index * 2;
+    objects.push(
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents ${contentId} 0 R /Resources << /Font << /F1 ${fontId} 0 R >> >> >>`,
+      `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`,
+    );
+  });
+  objects.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
   let body = "%PDF-1.4\n";
   const offsets = [0];
   objects.forEach((object, index) => {

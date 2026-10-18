@@ -1,6 +1,9 @@
 import { nok } from "@/lib/format";
+import { DraftButton } from "@/app/(office)/tilbud/draft-button";
 import { getDeal, listOptions } from "@/server/crm";
 import { dec, isoDate } from "@/server/dates";
+import { quotesFor } from "@/server/quotes";
+import { prisma } from "@straume/db";
 import Link from "next/link";
 import { CreateProjectButton, DealActions } from "./actions";
 
@@ -8,6 +11,11 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
   const { id } = await params;
   const deal = await getDeal(id);
   const options = await listOptions();
+  const inspection = await prisma.inspection.findFirst({
+    where: { deletedAt: null, OR: [{ dealId: id }, { project: { dealId: id } }] },
+    select: { id: true },
+  });
+  const quotes = await quotesFor({ dealId: id, projectId: deal.project?.id });
   const reasons = options.find((list) => list.key === "tapsarsak")?.items.filter((item) => item.active).map((item) => item.label) ?? [];
   return (
     <>
@@ -18,6 +26,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
           <p>{nok(dec(deal.valueNok) ?? 0)} · {deal.owner.name} · {deal.stage.name}</p>
         </div>
         {deal.project ? <Link className="btn" href={`/prosjekter/${deal.project.id}`}>Åpne prosjekt</Link> : null}
+        {inspection ? <DraftButton dealId={deal.id} projectId={deal.project?.id} /> : null}
         {deal.status === "won" && !deal.project ? <CreateProjectButton id={deal.id} /> : null}
       </div>
       <div className="grid-2">
@@ -29,6 +38,14 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
           <p>Person: {deal.person ? `${deal.person.firstName} ${deal.person.lastName}` : "–"}</p>
           <p>Organisasjon: {deal.organization?.name ?? "–"}</p>
           {deal.lostReason ? <p>Tapsårsak: {deal.lostReason}</p> : null}
+          <h2>Tilbud</h2>
+          {quotes.length === 0 ? <p className="muted">{inspection ? "Ingen tilbud ennå." : "Tilbudsutkast krever en befaring."}</p> : null}
+          {quotes.map((quote) => (
+            <div key={quote.id}>
+              <Link href={`/tilbud/${quote.id}`}>{quote.title} rev. {quote.revision}</Link>
+              <span className="muted"> · {quote.status} · {nok(dec(quote.totalIncVat))}</span>
+            </div>
+          ))}
           <h2>Aktiviteter</h2>
           {deal.activities.length === 0 ? <p className="muted">Ingen aktiviteter.</p> : null}
           {deal.activities.map((activity) => (

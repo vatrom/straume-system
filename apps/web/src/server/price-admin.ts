@@ -2,10 +2,16 @@ import { prisma, type PriceItemType } from "@straume/db";
 import {
   activatePriceList,
   addPriceLine,
+  adjustComponents,
   computeSalePrice,
   createAdjustedVersion,
   DomainError,
+  rollupBom,
   TRADE_CODES,
+  TRADES,
+  tableToXlsx,
+  type BomLineInput,
+  type CommercialSettings,
   type PriceLineInput,
   type PriceListInput,
   type RateInput,
@@ -27,6 +33,8 @@ function toLine(row: {
     customerVisible: boolean;
     internalNote: string | null;
     quantityFormula: string | null;
+    splitConfidence: string;
+    splitNote: string | null;
   };
   materialCost: { toNumber(): number };
   materialMarkup: { toNumber(): number } | null;
@@ -53,10 +61,51 @@ function toLine(row: {
     customerVisible: row.priceItem.customerVisible,
     active: row.priceItem.active,
     sortOrder: row.priceItem.sortOrder,
+    splitConfidence: row.priceItem.splitConfidence === "derived" || row.priceItem.splitConfidence === "uncertain" ? row.priceItem.splitConfidence : "known",
+    splitNote: row.priceItem.splitNote,
   };
 }
 
-async function loadList(id: string): Promise<PriceListInput> {
+function commercialOf(list: {
+  vatRate: { toNumber(): number };
+  byggstartPercent: { toNumber(): number };
+  byggstartFactor: { toNumber(): number };
+  mittanbudPercent: { toNumber(): number };
+  mittanbudFactor: { toNumber(): number };
+  extraCalloutNok: { toNumber(): number } | null;
+  tileAllowanceExVat: { toNumber(): number } | null;
+  electricianCostFactor: { toNumber(): number };
+  assemblyHourlyNok: { toNumber(): number } | null;
+}): CommercialSettings {
+  return {
+    vatRate: dec(list.vatRate) ?? 0.25,
+    byggstartPercent: dec(list.byggstartPercent) ?? 0.07,
+    byggstartFactor: dec(list.byggstartFactor) ?? 1.3,
+    mittanbudPercent: dec(list.mittanbudPercent) ?? 0.05,
+    mittanbudFactor: dec(list.mittanbudFactor) ?? 1.3,
+    extraCalloutNok: dec(list.extraCalloutNok),
+    tileAllowanceExVat: dec(list.tileAllowanceExVat),
+    electricianCostFactor: dec(list.electricianCostFactor) ?? 1.15,
+    assemblyHourlyNok: dec(list.assemblyHourlyNok),
+  };
+}
+
+function commercialData(commercial: CommercialSettings | undefined) {
+  if (!commercial) return {};
+  return {
+    vatRate: commercial.vatRate,
+    byggstartPercent: commercial.byggstartPercent,
+    byggstartFactor: commercial.byggstartFactor,
+    mittanbudPercent: commercial.mittanbudPercent,
+    mittanbudFactor: commercial.mittanbudFactor,
+    extraCalloutNok: commercial.extraCalloutNok,
+    tileAllowanceExVat: commercial.tileAllowanceExVat,
+    electricianCostFactor: commercial.electricianCostFactor,
+    assemblyHourlyNok: commercial.assemblyHourlyNok,
+  };
+}
+
+export async function loadList(id: string): Promise<PriceListInput> {
   const list = await prisma.priceList.findUnique({
     where: { id },
     include: { lines: { include: { priceItem: true } }, rates: true },
@@ -68,6 +117,7 @@ async function loadList(id: string): Promise<PriceListInput> {
     validFrom: list.validFrom.toISOString().slice(0, 10),
     validTo: list.validTo ? list.validTo.toISOString().slice(0, 10) : null,
     status: list.status,
+    commercial: commercialOf(list),
     lines: list.lines.map(toLine),
     rates: list.rates.map((rate) => ({
       tradeCode: rate.tradeId,
@@ -95,32 +145,73 @@ export async function listPriceLists() {
 
 export async function priceListView(id: string) {
   const list = await loadList(id);
+  const bomRows = await prisma.bomLine.findMany({
+    where: { priceItemId: { in: list.lines.map((line) => line.itemId) } },
+    include: { product: true },
+    orderBy: { sortOrder: "asc" },
+  });
+  const grouped = new Map<string, BomLineInput[]>();
+  for (const row of bomRows) {
+    const bucket = grouped.get(row.priceItemId) ?? [];
+    bucket.push({
+      id: row.id,
+      kind: row.kind === "product" ? "product" : "amount",
+      label: row.label,
+      amountNok: dec(row.amountNok),
+      quantity: dec(row.quantity) ?? 1,
+      product: row.product
+        ? {
+            id: row.product.id,
+            sku: row.product.sku,
+            name: row.product.name,
+            unit: row.product.unit,
+            costPrice: dec(row.product.costPrice),
+            listPrice: dec(row.product.listPrice),
+            discontinued: row.product.discontinued,
+          }
+        : null,
+    });
+    grouped.set(row.priceItemId, bucket);
+  }
   const lines = list.lines
-    .map((line) => ({ ...line, salePriceExVat: computeSalePrice(line, list.rates) }))
+    .map((line) => {
+      const rollup = rollupBom(grouped.get(line.itemId) ?? []);
+      return {
+        ...line,
+        salePriceExVat: computeSalePrice(line, list.rates),
+        hasBom: Boolean(rollup),
+        bomFlags: rollup?.flags.map((flag) => flag.message) ?? [],
+      };
+    })
     .sort((a, b) => a.tradeCode.localeCompare(b.tradeCode) || a.sortOrder - b.sortOrder);
-  return { ...list, lines };
+  const hoursByTrade = TRADES.map((trade) => ({
+    tradeCode: trade.code,
+    name: trade.name,
+    hours: lines.filter((line) => line.active && line.tradeCode === trade.code).reduce((sum, line) => sum + line.hoursPerUnit, 0),
+  })).filter((trade) => trade.hours > 0);
+  return { ...list, lines, hoursByTrade };
 }
 
-export async function adjustPriceList(
-  user: { id: string; role: string },
-  id: string,
-  input: { name: string; validFrom: string; percent: number; tradeCodes?: string[]; includeLaborRates?: boolean },
+async function persistVersion(
+  sourceId: string,
+  previousValidTo: string | null,
+  next: PriceListInput,
+  meta: { comment: string; adjustmentPercent?: number | null; actorId: string; actorName: string; action: string; detail: unknown },
 ) {
-  assertAdmin(user);
-  const source = await loadList(id);
-  const nextId = crypto.randomUUID();
-  const { previous, next } = createAdjustedVersion(source, { ...input, id: nextId });
   await prisma.$transaction(async (tx) => {
-    await tx.priceList.update({ where: { id }, data: { validTo: new Date(`${previous.validTo}T00:00:00.000Z`) } });
+    if (previousValidTo) {
+      await tx.priceList.update({ where: { id: sourceId }, data: { validTo: new Date(`${previousValidTo}T00:00:00.000Z`) } });
+    }
     await tx.priceList.create({
       data: {
         id: next.id,
         name: next.name,
         validFrom: new Date(`${next.validFrom}T00:00:00.000Z`),
         status: "draft",
-        createdFromId: id,
-        adjustmentPercent: input.percent,
-        comment: `Justert ${input.percent} % fra ${source.name}`,
+        createdFromId: sourceId,
+        adjustmentPercent: meta.adjustmentPercent ?? null,
+        comment: meta.comment,
+        ...commercialData(next.commercial),
         rates: {
           create: next.rates.map((rate: RateInput) => ({
             tradeId: rate.tradeCode,
@@ -143,8 +234,59 @@ export async function adjustPriceList(
         },
       },
     });
+    await tx.priceChangeLog.create({
+      data: {
+        priceListId: next.id,
+        actorId: meta.actorId,
+        actorName: meta.actorName,
+        action: meta.action,
+        detail: meta.detail as object,
+      },
+    });
+  });
+}
+
+export async function adjustPriceList(
+  user: { id: string; role: string },
+  id: string,
+  input: { name: string; validFrom: string; percent: number; tradeCodes?: string[]; includeLaborRates?: boolean },
+) {
+  assertAdmin(user);
+  const source = await loadList(id);
+  const actor = await prisma.user.findUnique({ where: { id: user.id }, select: { name: true } });
+  const nextId = crypto.randomUUID();
+  const { previous, next } = createAdjustedVersion(source, { ...input, id: nextId });
+  await persistVersion(id, previous.validTo, next, {
+    comment: `Justert ${input.percent} % fra ${source.name}`,
+    adjustmentPercent: input.percent,
+    actorId: user.id,
+    actorName: actor?.name ?? user.id,
+    action: "version.percent",
+    detail: { from: id, percent: input.percent, tradeCodes: input.tradeCodes ?? [], includeLaborRates: Boolean(input.includeLaborRates) },
   });
   await audit(user.id, "pricelist.version", "pricelist", nextId, { from: id, percent: input.percent });
+  return { id: nextId };
+}
+
+export async function adjustComponentVersion(
+  user: { id: string; role: string; name?: string },
+  id: string,
+  input: { name: string; validFrom: string; materialPercent: number; laborPercent: number; tradeCodes?: string[] },
+) {
+  assertAdmin(user);
+  const source = await loadList(id);
+  const actor = await prisma.user.findUnique({ where: { id: user.id }, select: { name: true } });
+  const nextId = crypto.randomUUID();
+  const { previous, next } = adjustComponents(source, { ...input, id: nextId });
+  await persistVersion(id, previous.validTo, next, {
+    comment: `Materiell ${input.materialPercent} %, timer ${input.laborPercent} % fra ${source.name}`,
+    adjustmentPercent: null,
+    actorId: user.id,
+    actorName: actor?.name ?? user.id,
+    action: "version.components",
+    detail: input,
+  });
+  await audit(user.id, "pricelist.components", "pricelist", nextId, input);
   return { id: nextId };
 }
 
@@ -215,6 +357,8 @@ export async function addItem(
       customerVisible: line.customerVisible,
       internalNote: line.internalNote,
       quantityFormula: line.quantityFormula,
+      splitConfidence: line.materialCost > 0 || line.hoursPerUnit > 0 ? "known" : "uncertain",
+      splitNote: line.materialCost > 0 || line.hoursPerUnit > 0 ? null : "Ny post uten oppdeling av timer og materiell.",
     },
   });
   const existing = await prisma.priceLine.findUnique({ where: { priceListId_priceItemId: { priceListId, priceItemId: line.code } } });
@@ -238,17 +382,23 @@ export async function editLine(
   user: { id: string; role: string },
   priceListId: string,
   itemId: string,
-  input: Partial<Pick<PriceLineInput, "name" | "materialCost" | "materialMarkup" | "hoursPerUnit" | "hourlyRateOverride" | "salePriceOverride" | "quantityFormula" | "active" | "internalNote">>,
+  input: Partial<Pick<PriceLineInput, "name" | "unit" | "materialCost" | "materialMarkup" | "hoursPerUnit" | "hourlyRateOverride" | "salePriceOverride" | "quantityFormula" | "active" | "internalNote">> & { customerText?: string | null },
 ) {
   assertAdmin(user);
-  if (input.name || input.quantityFormula !== undefined || input.active !== undefined || input.internalNote !== undefined) {
+  const bomCount = await prisma.bomLine.count({ where: { priceItemId: itemId } });
+  if (bomCount > 0 && input.materialCost !== undefined) {
+    throw new DomainError("Materialkost styres av stykklisten. Endre linjene der, så regnes kostnaden på nytt.");
+  }
+  if (input.name || input.unit || input.quantityFormula !== undefined || input.active !== undefined || input.internalNote !== undefined || input.customerText !== undefined) {
     await prisma.priceItem.update({
       where: { id: itemId },
       data: {
         name: input.name?.trim() || undefined,
+        unit: input.unit?.trim() || undefined,
         quantityFormula: input.quantityFormula,
         active: input.active,
         internalNote: input.internalNote,
+        customerText: input.customerText,
       },
     });
   }
@@ -262,5 +412,60 @@ export async function editLine(
       salePriceOverride: input.salePriceOverride,
     },
   });
+  const actor = await prisma.user.findUnique({ where: { id: user.id }, select: { name: true } });
+  await prisma.priceChangeLog.create({
+    data: {
+      priceListId,
+      priceItemId: itemId,
+      actorId: user.id,
+      actorName: actor?.name ?? user.id,
+      action: "line.update",
+      detail: JSON.parse(JSON.stringify(input)),
+    },
+  });
   await audit(user.id, "priceline.update", "priceline", itemId, { priceListId });
+}
+
+export async function archiveItem(user: { id: string; role: string }, priceListId: string, itemId: string) {
+  assertAdmin(user);
+  await prisma.priceItem.update({ where: { id: itemId }, data: { active: false } });
+  const actor = await prisma.user.findUnique({ where: { id: user.id }, select: { name: true } });
+  await prisma.priceChangeLog.create({
+    data: { priceListId, priceItemId: itemId, actorId: user.id, actorName: actor?.name ?? user.id, action: "item.archive", detail: {} },
+  });
+  await audit(user.id, "priceitem.archive", "priceitem", itemId, { priceListId });
+}
+
+export async function priceChangeLog(priceListId: string) {
+  const rows = await prisma.priceChangeLog.findMany({ where: { priceListId }, orderBy: { createdAt: "desc" }, take: 40 });
+  return rows.map((row) => ({
+    id: row.id,
+    action: row.action,
+    actorName: row.actorName,
+    priceItemId: row.priceItemId,
+    detail: row.detail,
+    createdAt: row.createdAt.toISOString(),
+  }));
+}
+
+export async function priceListExcel(id: string): Promise<{ name: string; body: Buffer }> {
+  const list = await priceListView(id);
+  const header = ["Kode", "Fag", "Navn", "Enhet", "Type", "Materialkost", "Påslag", "Timer per enhet", "Timepris overstyrt", "Salgspris eks. mva", "Splitt", "Merknad", "Aktiv", "Stykkliste"];
+  const rows = list.lines.map((line) => [
+    line.code,
+    line.tradeCode,
+    line.name,
+    line.unit,
+    line.type,
+    String(line.materialCost),
+    line.materialMarkup == null ? "" : String(line.materialMarkup),
+    String(line.hoursPerUnit),
+    line.hourlyRateOverride == null ? "" : String(line.hourlyRateOverride),
+    String(line.salePriceExVat),
+    line.splitConfidence ?? "",
+    line.splitNote ?? "",
+    line.active ? "ja" : "nei",
+    line.hasBom ? "ja" : "nei",
+  ]);
+  return { name: `${list.name}.xlsx`, body: tableToXlsx([header, ...rows]) };
 }

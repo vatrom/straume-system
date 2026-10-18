@@ -1,4 +1,4 @@
-import { priceListView } from "@/server/price-admin";
+import { priceChangeLog, priceListView } from "@/server/price-admin";
 import { currentUser } from "@/server/auth";
 import Link from "next/link";
 import { PriceEditor } from "./editor";
@@ -7,6 +7,8 @@ export default async function PriceListPage({ params }: { params: Promise<{ id: 
   const { id } = await params;
   const user = await currentUser();
   const list = await priceListView(id);
+  const log = await priceChangeLog(id);
+  const flagged = list.lines.filter((line) => line.bomFlags.length || line.splitConfidence === "uncertain");
   return (
     <>
       <div className="top">
@@ -21,6 +23,20 @@ export default async function PriceListPage({ params }: { params: Promise<{ id: 
           </p>
         </div>
       </div>
+      <div className="kpis">
+        {list.hoursByTrade.map((trade) => (
+          <div className="card kpi" key={trade.tradeCode}>
+            <div className="label">{trade.name}</div>
+            <strong>{trade.hours.toLocaleString("nb-NO")} t</strong>
+            <div className="muted">timer per enhet, summert</div>
+          </div>
+        ))}
+      </div>
+      {flagged.length ? (
+        <p className="muted" style={{ marginTop: 12 }}>
+          {flagged.length} poster er merket fordi splittet er usikkert, eller fordi stykklisten peker på utgått vare eller mangler pris.
+        </p>
+      ) : null}
       {user?.role === "admin" ? (
         <PriceEditor
           listId={list.id}
@@ -36,6 +52,11 @@ export default async function PriceListPage({ params }: { params: Promise<{ id: 
             hoursPerUnit: line.hoursPerUnit,
             salePriceOverride: line.salePriceOverride,
             salePriceExVat: line.salePriceExVat,
+            splitConfidence: line.splitConfidence ?? "known",
+            splitNote: line.splitNote ?? null,
+            hasBom: line.hasBom,
+            bomFlags: line.bomFlags,
+            active: line.active,
           }))}
         />
       ) : (
@@ -62,6 +83,16 @@ export default async function PriceListPage({ params }: { params: Promise<{ id: 
           </table>
         </div>
       )}
+      <section className="card stack" style={{ marginTop: 16 }}>
+        <h2>Endringslogg</h2>
+        {log.length === 0 ? <p className="muted">Ingen endringer er logget på denne versjonen ennå.</p> : null}
+        {log.map((entry) => (
+          <div key={entry.id}>
+            <strong>{entry.action}</strong>
+            <span className="muted"> · {entry.actorName} · {entry.createdAt.slice(0, 16).replace("T", " ")}{entry.priceItemId ? ` · ${entry.priceItemId}` : ""}</span>
+          </div>
+        ))}
+      </section>
     </>
   );
 }

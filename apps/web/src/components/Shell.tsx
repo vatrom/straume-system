@@ -13,6 +13,8 @@ const links: [string, string][] = [
   ["/personer", "Personer"],
   ["/organisasjoner", "Organisasjoner"],
   ["/prislister", "Prislister"],
+  ["/produkter", "Produkter"],
+  ["/tekstmaler", "Tekstmaler"],
   ["/sjekklister", "Sjekklister"],
   ["/innstillinger", "Innstillinger"],
 ];

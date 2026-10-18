@@ -23,6 +23,9 @@ export type PriceLineInput = {
   customerVisible: boolean;
   active: boolean;
   sortOrder: number;
+  /** known = timer og materiell fra underarket. derived = utledet fra totalpris eller formel. uncertain = må kontrolleres. */
+  splitConfidence?: "known" | "derived" | "uncertain";
+  splitNote?: string | null;
 };
 
 export type RateInput = {
@@ -33,6 +36,35 @@ export type RateInput = {
   defaultMaterialMarkup: number;
 };
 
+/** Satser som følger prislisten, ikke den enkelte varelinjen. */
+export type CommercialSettings = {
+  vatRate: number;
+  byggstartPercent: number;
+  byggstartFactor: number;
+  mittanbudPercent: number;
+  mittanbudFactor: number;
+  /** Felles «ekstra oppmøte» i tilbudsteksten. Null betyr at satsen ikke er avklart. */
+  extraCalloutNok: number | null;
+  /** Beløp som tilbudsteksten sier er inkludert flis per m². Null betyr ikke avklart. */
+  tileAllowanceExVat: number | null;
+  /** Etterkalkylen antar elektriker-kost = salgspris / denne faktoren når linjen mangler kostoppdeling. */
+  electricianCostFactor: number;
+  /** Timesats for montering av innredning kunden leverer selv. Null betyr ikke avklart. */
+  assemblyHourlyNok: number | null;
+};
+
+export const DEFAULT_COMMERCIAL: CommercialSettings = {
+  vatRate: 0.25,
+  byggstartPercent: 0.07,
+  byggstartFactor: 1.3,
+  mittanbudPercent: 0.05,
+  mittanbudFactor: 1.3,
+  extraCalloutNok: null,
+  tileAllowanceExVat: null,
+  electricianCostFactor: 1.15,
+  assemblyHourlyNok: null,
+};
+
 export type PriceListInput = {
   id: string;
   name: string;
@@ -41,6 +73,7 @@ export type PriceListInput = {
   status: "draft" | "active" | "archived";
   lines: PriceLineInput[];
   rates: RateInput[];
+  commercial?: CommercialSettings;
 };
 
 export const DEFAULT_TRADE_RATES: RateInput[] = [
@@ -135,6 +168,11 @@ export function lineFromSpreadsheetRow(row: SpreadsheetPriceRow, rates: RateInpu
   if (!rate) throw new DomainError(`Mangler fagsats for ${tradeCode}`);
   const sheetPrice = num(row.salgspris_eks_mva);
   const timesats = num(row.timesats);
+  const materialRaw = num(row.materialkost_pr_enhet);
+  const hoursRaw = num(row.timer_pr_enhet);
+  const hasSplit = materialRaw != null || hoursRaw != null || timesats != null;
+  const notes = [row.merknad.trim()].filter(Boolean);
+  let splitConfidence: "known" | "derived" | "uncertain" = hasSplit ? "known" : "uncertain";
   const draft: PriceLineInput = {
     itemId: priceItemCode(tradeCode, sortOrder),
     code: priceItemCode(tradeCode, sortOrder),
@@ -142,9 +180,9 @@ export function lineFromSpreadsheetRow(row: SpreadsheetPriceRow, rates: RateInpu
     name: row.navn.trim(),
     unit: normalizeUnit(row.enhet),
     type,
-    materialCost: num(row.materialkost_pr_enhet) ?? 0,
+    materialCost: materialRaw ?? 0,
     materialMarkup: num(row.paslag_material),
-    hoursPerUnit: num(row.timer_pr_enhet) ?? 0,
+    hoursPerUnit: hoursRaw ?? 0,
     hourlyRateOverride: timesats != null && timesats !== rate.hourlyRateSale ? timesats : null,
     salePriceOverride: null,
     quantityFormula: translateQuantityFormula(row.mengdeformel_mal),
@@ -153,14 +191,46 @@ export function lineFromSpreadsheetRow(row: SpreadsheetPriceRow, rates: RateInpu
     customerVisible: type !== "freetext" && type !== "percent_addon",
     active: true,
     sortOrder,
+    splitConfidence,
+    splitNote: null,
   };
+  const backward = row.materialkost_formel.trim().match(/^=\s*([0-9]+(?:[.,][0-9]+)?)\s*\/\s*([0-9]+(?:[.,][0-9]+)?)\s*$/);
+  if (materialRaw == null && backward && type !== "freetext" && type !== "percent_addon") {
+    const target = Number(backward[1]!.replace(",", "."));
+    const divisor = Number(backward[2]!.replace(",", "."));
+    if (divisor > 0) {
+      draft.materialCost = round4(target / divisor);
+      draft.materialMarkup = round4(divisor - 1);
+      splitConfidence = "derived";
+      notes.push(`Materiell utledet fra formelen ${row.materialkost_formel.trim()}.`);
+    }
+  }
+  if (!hasSplit && type === "hours" && sheetPrice != null) {
+    draft.hoursPerUnit = 1;
+    draft.materialCost = 0;
+    draft.hourlyRateOverride = sheetPrice !== rate.hourlyRateSale ? sheetPrice : null;
+    splitConfidence = "derived";
+    notes.push("Utledet som én time fra totalpris. Kontroller timepris.");
+  } else if (!hasSplit && type === "callout") {
+    splitConfidence = "known";
+    notes.push("Oppmøte er en fast sats, ikke timer eller materiell.");
+  } else if (!hasSplit && type !== "freetext" && type !== "percent_addon") {
+    splitConfidence = "uncertain";
+    notes.push("Kun totalpris i regnearket. Timer og materiell må kontrolleres manuelt.");
+  }
+  draft.splitConfidence = splitConfidence;
+  draft.splitNote = notes.join(" ") || null;
   if (type === "percent_addon" || type === "freetext") {
     draft.salePriceOverride = sheetPrice ?? 0;
+    draft.splitConfidence = "known";
     return draft;
   }
   const computed = computeSalePrice(draft, rates);
   if (sheetPrice != null && Math.abs(computed - sheetPrice) > 0.02) {
     draft.salePriceOverride = roundMoney(sheetPrice);
+    if (draft.splitConfidence === "known") {
+      draft.splitNote = [draft.splitNote, "Salgspris i regnearket avviker fra timer + materiell og er lagret som overstyring."].filter(Boolean).join(" ");
+    }
   }
   return draft;
 }
@@ -178,6 +248,22 @@ export function priceListFromCsv(csv: string, meta: { id: string; name: string; 
     status: "active",
     lines,
     rates: DEFAULT_TRADE_RATES.map((rate) => ({ ...rate })),
+  };
+}
+
+function scaleCommercial(
+  commercial: CommercialSettings | undefined,
+  factor: number,
+  includeLaborRates: boolean | undefined,
+): CommercialSettings | undefined {
+  if (!commercial) return undefined;
+  return {
+    ...commercial,
+    tileAllowanceExVat: commercial.tileAllowanceExVat == null ? null : roundMoney(commercial.tileAllowanceExVat * factor),
+    extraCalloutNok:
+      includeLaborRates && commercial.extraCalloutNok != null ? roundMoney(commercial.extraCalloutNok * factor) : commercial.extraCalloutNok,
+    assemblyHourlyNok:
+      includeLaborRates && commercial.assemblyHourlyNok != null ? roundMoney(commercial.assemblyHourlyNok * factor) : commercial.assemblyHourlyNok,
   };
 }
 
@@ -219,6 +305,7 @@ export function createAdjustedVersion(
     validFrom: opts.validFrom,
     validTo: null,
     status: "draft",
+    commercial: scaleCommercial(source.commercial, factor, opts.includeLaborRates),
     lines: source.lines.map((line) => {
       if (!inScope(line.tradeCode, opts.tradeCodes)) return { ...line };
       if (line.type === "percent_addon" || line.type === "freetext") return { ...line };
@@ -239,6 +326,80 @@ export function createAdjustedVersion(
         hourlyRateSale: roundMoney(rate.hourlyRateSale * factor),
         hourlyRateInternal: roundMoney(rate.hourlyRateInternal * factor),
         calloutPrice: roundMoney(rate.calloutPrice * factor),
+      };
+    }),
+  };
+  return { previous, next };
+}
+
+/**
+ * Ny prisversjon der materiell og timepris justeres hver for seg.
+ * Fastpris uten komponenter (usikker splitt) følger materialprosenten.
+ * Rene timeposter med overstyring følger timeprosenten. Oppmøte følger timepris.
+ */
+export function adjustComponents(
+  source: PriceListInput,
+  opts: {
+    id: string;
+    name: string;
+    validFrom: string;
+    materialPercent: number;
+    laborPercent: number;
+    tradeCodes?: string[];
+  },
+): { previous: PriceListInput; next: PriceListInput } {
+  const name = opts.name.trim();
+  if (!name) throw new DomainError("Ny prisliste må ha et navn");
+  for (const percent of [opts.materialPercent, opts.laborPercent]) {
+    if (!Number.isFinite(percent) || percent <= -100 || percent > 500) throw new DomainError("Prosent må være over -100 og høyst 500");
+  }
+  if (opts.materialPercent === 0 && opts.laborPercent === 0) throw new DomainError("Oppgi prosent for materiell, timepris eller begge");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(opts.validFrom) || opts.validFrom <= source.validFrom) {
+    throw new DomainError("Ny prisliste må gjelde fra en senere dato");
+  }
+  const materialFactor = 1 + opts.materialPercent / 100;
+  const laborFactor = 1 + opts.laborPercent / 100;
+  const dayBefore = addDays(opts.validFrom, -1);
+  const validTo = !source.validTo || source.validTo > dayBefore ? dayBefore : source.validTo;
+  const previous: PriceListInput = { ...source, validTo };
+  const next: PriceListInput = {
+    id: opts.id,
+    name,
+    validFrom: opts.validFrom,
+    validTo: null,
+    status: "draft",
+    commercial: source.commercial
+      ? {
+          ...source.commercial,
+          tileAllowanceExVat:
+            source.commercial.tileAllowanceExVat == null ? null : roundMoney(source.commercial.tileAllowanceExVat * materialFactor),
+          extraCalloutNok: source.commercial.extraCalloutNok == null ? null : roundMoney(source.commercial.extraCalloutNok * laborFactor),
+          assemblyHourlyNok:
+            source.commercial.assemblyHourlyNok == null ? null : roundMoney(source.commercial.assemblyHourlyNok * laborFactor),
+        }
+      : undefined,
+    lines: source.lines.map((line) => {
+      if (!inScope(line.tradeCode, opts.tradeCodes)) return { ...line };
+      if (line.type === "percent_addon" || line.type === "freetext") return { ...line };
+      const pureFixed = line.materialCost === 0 && line.hoursPerUnit === 0;
+      const pureLabor = line.materialCost === 0 && line.hoursPerUnit > 0;
+      let override = line.salePriceOverride;
+      if (override != null && pureFixed && line.type !== "callout") override = roundMoney(override * materialFactor);
+      if (override != null && (line.type === "callout" || pureLabor)) override = roundMoney(override * laborFactor);
+      return {
+        ...line,
+        materialCost: round4(line.materialCost * materialFactor),
+        hourlyRateOverride: line.hourlyRateOverride == null ? null : roundMoney(line.hourlyRateOverride * laborFactor),
+        salePriceOverride: override,
+      };
+    }),
+    rates: source.rates.map((rate) => {
+      if (!inScope(rate.tradeCode, opts.tradeCodes)) return { ...rate };
+      return {
+        ...rate,
+        hourlyRateSale: roundMoney(rate.hourlyRateSale * laborFactor),
+        hourlyRateInternal: roundMoney(rate.hourlyRateInternal * laborFactor),
+        calloutPrice: roundMoney(rate.calloutPrice * laborFactor),
       };
     }),
   };

@@ -11,11 +11,13 @@ const ROLES = [
 
 export function SettingsForms({
   winnerEmail,
+  approverRoles,
   isAdmin,
   users,
   lists,
 }: {
   winnerEmail: string;
+  approverRoles: string[];
   isAdmin: boolean;
   users: { id: string; name: string; email: string; role: string; active: boolean }[];
   lists: { key: string; name: string; items: { id: string; label: string; active: boolean }[] }[];
@@ -51,6 +53,31 @@ export function SettingsForms({
         {isAdmin ? (
           <button className="btn primary" type="submit">
             Lagre
+          </button>
+        ) : null}
+      </form>
+      <form
+        className="card stack"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          const roles = new FormData(event.currentTarget).getAll("role").map(String);
+          try {
+            await send("/api/settings/approvers", "PUT", { roles });
+            setMessage("Godkjennerroller lagret");
+          } catch (error) {
+            setMessage(error instanceof Error ? error.message : "Feil");
+          }
+        }}
+      >
+        <h2>Hvem kan godkjenne tilbud</h2>
+        {ROLES.map(([role, label]) => (
+          <label key={role}>
+            <input name="role" type="checkbox" value={role} defaultChecked={approverRoles.includes(role)} disabled={!isAdmin} /> {label}
+          </label>
+        ))}
+        {isAdmin ? (
+          <button className="btn" type="submit">
+            Lagre roller
           </button>
         ) : null}
       </form>

@@ -1,11 +1,13 @@
 import bcrypt from "bcryptjs";
 import { prisma, type ActivityType, type ChangeOrderStatus, type DocumentVisibility, type PriceItemType, type ProjectStatus, type Role } from "@straume/db";
-import { DomainError } from "@straume/domain";
+import { DomainError, type QuoteFlowStatus } from "@straume/domain";
 import { clearSessionCookie, setSessionCookie, signSession, withUser, type SessionUser } from "./auth";
 import { addActivity, addOption, addStage, createDeal, createPipeline, createProjectFromDeal, dealsForBoard, editOption, editStage, getDeal, listOptions, listOrganizations, listPeople, listPipelines, loseDeal, orderStages, removeOption, removePipeline, removeStage, saveOrganization, savePerson, staff, toggleActivity, updateDeal, updatePipeline, winDeal } from "./crm";
 import { checklistEditor, publishChecklist, saveDraft, type DraftSection } from "./checklists";
 import { HttpError, json, jsonError, readJson } from "./http";
-import { activateList, addItem, adjustPriceList, editLine, listPriceLists, priceListView } from "./price-admin";
+import { activateList, addItem, adjustComponentVersion, adjustPriceList, archiveItem, editLine, listPriceLists, priceChangeLog, priceListExcel, priceListView } from "./price-admin";
+import { applyPriceFile, itemBom, listProducts, listSuppliers, previewPriceFile, saveItemBom, saveSupplier } from "./catalog";
+import { addQuoteLine, createChangeDraft, createQuoteDraft, decideChange, emailQuote, listTemplates, plannedHours, quotePdf, quoteView, quotesFor, removeQuoteLine, reviseQuote, saveTemplate, transitionQuote, updateQuote } from "./quotes";
 import { dashboardView, deleteGoal, deleteReport, drilldown, exportInsights, goalBoard, insightMeta, queryInsights, saveGoal, saveReport, setPeerVisibility, toCsv, toExcelXml } from "./insights";
 import { addChange, addDocument, addPhase, customerView, dashboard, editChange, editPhase, listBoards, moveProject, orderPhases, projectDetail, removePhase, roomSketchFile, sendWinner, updateProject } from "./projects";
 import { getObject } from "./store";
@@ -211,7 +213,7 @@ async function dispatch(req: Request, slug: string[], user: SessionUser): Promis
     const body = await readJson<{ phaseId: string }>(req);
     return json(await moveProject(user, b, body.phaseId), 200, req);
   }
-  if (a === "projects" && b && c === "changes" && method === "POST") {
+  if (a === "projects" && b && c === "changes" && !d && method === "POST") {
     const body = await readJson<{ title: string; description?: string; amountNok?: number | null; status?: ChangeOrderStatus; internalNote?: string }>(req);
     return json(await addChange(user, b, body), 201, req);
   }
@@ -242,6 +244,74 @@ async function dispatch(req: Request, slug: string[], user: SessionUser): Promis
     return json(await addItem(user, b, body), 201, req);
   }
   if (a === "price-lists" && b && c === "lines" && d && method === "PATCH") return json(await editLine(user, b, d, await readJson(req)) ?? { ok: true }, 200, req);
+  if (a === "price-lists" && b && c === "lines" && d && slug[4] === "archive" && method === "POST") {
+    await archiveItem(user, b, d);
+    return json({ ok: true }, 200, req);
+  }
+  if (a === "price-lists" && b && c === "excel" && method === "GET") {
+    const file = await priceListExcel(b);
+    return new Response(new Uint8Array(file.body), {
+      headers: {
+        "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "content-disposition": `attachment; filename="${encodeURIComponent(file.name)}"`,
+      },
+    });
+  }
+  if (a === "price-lists" && b && c === "log" && method === "GET") return json(await priceChangeLog(b), 200, req);
+  if (a === "price-lists" && b && c === "components" && method === "POST") {
+    return json(await adjustComponentVersion(user, b, await readJson(req)), 201, req);
+  }
+  if (a === "price-lists" && b && c === "items" && d && slug[4] === "bom" && method === "GET") return json(await itemBom(b, d), 200, req);
+  if (a === "price-lists" && b && c === "items" && d && slug[4] === "bom" && method === "PUT") {
+    const body = await readJson<{ lines: { kind: "amount" | "product"; label?: string | null; amountNok?: number | null; productId?: string | null; quantity: number }[] }>(req);
+    return json(await saveItemBom(user, b, d, body.lines ?? []), 200, req);
+  }
+  if (a === "suppliers" && !b && method === "GET") return json(await listSuppliers(), 200, req);
+  if (a === "suppliers" && !b && method === "POST") return json(await saveSupplier(user, await readJson(req)), 201, req);
+  if (a === "suppliers" && b && c === "import" && d === "preview" && method === "POST") return importFile(req, b, false, user);
+  if (a === "suppliers" && b && c === "import" && d === "apply" && method === "POST") return importFile(req, b, true, user);
+  if (a === "products" && method === "GET") {
+    return json(await listProducts(new URL(req.url).searchParams.get("q") ?? undefined), 200, req);
+  }
+  if (a === "quotes" && b === "draft" && method === "POST") {
+    const body = await readJson<{ dealId?: string; projectId?: string }>(req);
+    return json(await createQuoteDraft(user, body), 201, req);
+  }
+  if (a === "quotes" && b === "for" && method === "GET") {
+    const url = new URL(req.url);
+    const rows = await quotesFor({ dealId: url.searchParams.get("dealId"), projectId: url.searchParams.get("projectId") });
+    return json(rows, 200, req);
+  }
+  if (a === "quotes" && b && !c && method === "GET") return json(await quoteView(b), 200, req);
+  if (a === "quotes" && b && !c && method === "PATCH") return json(await updateQuote(user, b, await readJson(req)), 200, req);
+  if (a === "quotes" && b && c === "lines" && !d && method === "POST") return json(await addQuoteLine(user, b, await readJson(req)), 201, req);
+  if (a === "quotes" && b && c === "lines" && d && method === "DELETE") return json(await removeQuoteLine(user, b, d), 200, req);
+  if (a === "quotes" && b && c === "transition" && method === "POST") {
+    const body = await readJson<{ to: QuoteFlowStatus }>(req);
+    return json(await transitionQuote(user, b, body.to), 200, req);
+  }
+  if (a === "quotes" && b && c === "revision" && method === "POST") return json(await reviseQuote(user, b), 201, req);
+  if (a === "quotes" && b && c === "email" && method === "POST") return json(await emailQuote(user, b), 200, req);
+  if (a === "quotes" && b && c === "pdf" && method === "GET") {
+    const file = await quotePdf(b);
+    return new Response(new Uint8Array(file.body), {
+      headers: { "content-type": "application/pdf", "content-disposition": `inline; filename="${encodeURIComponent(file.name)}"` },
+    });
+  }
+  if (a === "projects" && b && c === "planned-hours" && method === "GET") return json(await plannedHours(b), 200, req);
+  if (a === "projects" && b && c === "changes" && d === "draft" && method === "POST") {
+    const body = await readJson<{ description: string }>(req);
+    return json(await createChangeDraft(user, b, body.description), 201, req);
+  }
+  if (a === "changes" && b && c === "decide" && method === "POST") {
+    const body = await readJson<{ status: "approved" | "rejected" | "sent" }>(req);
+    return json(await decideChange(user, b, body.status), 200, req);
+  }
+  if (a === "templates" && !b && method === "GET") return json(await listTemplates(), 200, req);
+  if (a === "templates" && b && method === "PUT") {
+    const body = await readJson<{ body: string }>(req);
+    return json(await saveTemplate(user, decodeURIComponent(b), body.body), 200, req);
+  }
   if (a === "sync" && b === "pull" && method === "GET") {
     const since = new URL(req.url).searchParams.get("since");
     return json(await pullChanges(since), 200, req);
@@ -254,20 +324,53 @@ async function dispatch(req: Request, slug: string[], user: SessionUser): Promis
   if (a === "media" && method === "POST") return uploadMedia(req, user);
   if (a === "settings" && method === "GET") {
     const winner = await prisma.appSetting.findUnique({ where: { key: "winner_email" } });
+    const approvers = await prisma.appSetting.findUnique({ where: { key: "quote_approver_roles" } });
     const users = user.role === "admin" ? await prisma.user.findMany({ select: { id: true, name: true, email: true, role: true, active: true }, orderBy: { name: "asc" } }) : [];
-    return json({ winnerEmail: winner?.value ?? "", users }, 200, req);
+    return json({ winnerEmail: winner?.value ?? "", approverRoles: approvers?.value ?? "admin,kontor", users }, 200, req);
   }
-  if (a === "settings" && method === "PUT") {
+  if (a === "settings" && !b && method === "PUT") {
     if (user.role !== "admin") throw new HttpError(403, "Bare administrator kan gjøre dette");
     const body = await readJson<{ winnerEmail: string }>(req);
     if (!body.winnerEmail.includes("@")) throw new DomainError("E-postadressen er ugyldig");
     await prisma.appSetting.upsert({ where: { key: "winner_email" }, update: { value: body.winnerEmail.trim() }, create: { key: "winner_email", value: body.winnerEmail.trim() } });
     return json({ ok: true }, 200, req);
   }
+  if (a === "settings" && b === "approvers" && method === "PUT") {
+    if (user.role !== "admin") throw new HttpError(403, "Bare administrator kan gjøre dette");
+    const body = await readJson<{ roles: string[] }>(req);
+    const roles = (body.roles ?? []).filter((role) => ROLES.includes(role as Role));
+    if (!roles.length) throw new DomainError("Minst én rolle må kunne godkjenne");
+    await prisma.appSetting.upsert({
+      where: { key: "quote_approver_roles" },
+      update: { value: roles.join(",") },
+      create: { key: "quote_approver_roles", value: roles.join(",") },
+    });
+    return json({ ok: true }, 200, req);
+  }
   if (a === "users" && !b && method === "POST") return createUser(req, user);
   if (a === "users" && b && method === "PATCH") return updateUser(req, user, b);
 
   return json({ error: "Fant ikke endepunktet" }, 404, req);
+}
+
+async function importFile(req: Request, supplierId: string, apply: boolean, user: SessionUser): Promise<Response> {
+  const type = req.headers.get("content-type") ?? "";
+  let fileName = "prisfil.csv";
+  let bytes: Buffer;
+  if (type.includes("multipart/form-data")) {
+    const form = await req.formData();
+    const file = form.get("file");
+    if (!(file instanceof File)) throw new HttpError(400, "Mangler fil");
+    fileName = file.name || fileName;
+    bytes = Buffer.from(await file.arrayBuffer());
+  } else {
+    const body = await readJson<{ fileName?: string; text?: string }>(req);
+    fileName = body.fileName || fileName;
+    if (!body.text) throw new HttpError(400, "Mangler filinnhold");
+    bytes = Buffer.from(body.text, "utf8");
+  }
+  if (apply) return json(await applyPriceFile(user, supplierId, fileName, bytes), 200, req);
+  return json(await previewPriceFile(supplierId, fileName, bytes), 200, req);
 }
 
 async function createUser(req: Request, actorUser: SessionUser): Promise<Response> {

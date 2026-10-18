@@ -23,6 +23,7 @@ import {
 } from "@straume/domain";
 import { PrismaClient, type ActivityType, type QuestionType } from "@prisma/client";
 import { ensureInsights } from "./insight-seed";
+import { ensurePhase2 } from "./phase2-seed";
 
 const prisma = new PrismaClient();
 
@@ -273,7 +274,8 @@ async function main() {
     });
     await ensureDealProjectSplit();
     await ensureInsights(prisma);
-    console.log("Seed finnes allerede. Hoppet over. Sett SEED_FORCE=1 for å kjøre på nytt (upsert).");
+    await ensurePhase2(prisma);
+    console.log("Seed finnes allerede. Fase 2-data er sikret. Sett SEED_FORCE=1 for full upsert.");
     return;
   }
   const password = process.env.SEED_PASSWORD ?? (process.env.NODE_ENV === "production" ? "" : "bytt-meg-lokalt");
@@ -782,6 +784,7 @@ async function main() {
 
   await ensureDealProjectSplit();
   await ensureInsights(prisma);
+  await ensurePhase2(prisma);
 
   await prisma.appSetting.upsert({
     where: { key: "seed_complete" },

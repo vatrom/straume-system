@@ -65,7 +65,26 @@ export type ReportKind =
   | "average"
   | "cycle"
   | "lost_reasons"
-  | "activity";
+  | "activity"
+  | "quotes"
+  | "quote_margin"
+  | "quote_hit"
+  | "planned_hours";
+
+export type InsightQuote = {
+  id: string;
+  dealId: string | null;
+  status: "draft" | "pending_approval" | "approved" | "sent" | "accepted" | "rejected";
+  valueIncVat: number;
+  marginExVat: number;
+  createdAt: string;
+  decidedAt: string | null;
+  ownerId: string;
+  ownerName: string;
+  source: string;
+  area: string;
+  hoursByTrade?: Record<string, number>;
+};
 
 export type Measure = "sum" | "count" | "avg";
 export type GroupBy = "none" | "seller" | "pipeline" | "stage" | "source" | "lostReason" | "area" | "month" | "quarter" | "year";
@@ -123,7 +142,7 @@ export type GoalInput = {
   target: number;
 };
 
-const KINDS: ReportKind[] = ["won", "lost", "started", "funnel", "movement", "forecast", "average", "cycle", "lost_reasons", "activity"];
+const KINDS: ReportKind[] = ["won", "lost", "started", "funnel", "movement", "forecast", "average", "cycle", "lost_reasons", "activity", "quotes", "quote_margin", "quote_hit", "planned_hours"];
 const MEASURES: Measure[] = ["sum", "count", "avg"];
 const GROUPS: GroupBy[] = ["none", "seller", "pipeline", "stage", "source", "lostReason", "area", "month", "quarter", "year"];
 const PERIODS: PeriodPreset[] = ["this_month", "last_month", "this_quarter", "this_year", "last_year", "last_12", "custom"];
@@ -170,9 +189,10 @@ export function normalizeSpec(input: Partial<InsightSpec> | null | undefined): I
 }
 
 function defaultMeasure(kind: ReportKind): Measure {
-  if (kind === "average" || kind === "cycle") return "avg";
+  if (kind === "average" || kind === "cycle" || kind === "quote_margin") return "avg";
+  if (kind === "planned_hours") return "sum";
   if (kind === "forecast") return "sum";
-  if (kind === "activity" || kind === "movement" || kind === "funnel" || kind === "lost_reasons") return "count";
+  if (kind === "activity" || kind === "movement" || kind === "funnel" || kind === "lost_reasons" || kind === "quotes" || kind === "quote_hit") return "count";
   return "sum";
 }
 
@@ -185,7 +205,7 @@ function defaultGroup(kind: ReportKind): GroupBy {
 
 function defaultView(kind: ReportKind): ChartView {
   if (kind === "funnel") return "funnel";
-  if (kind === "cycle" || kind === "average" || kind === "forecast") return "kpi";
+  if (kind === "cycle" || kind === "average" || kind === "forecast" || kind === "quote_margin" || kind === "quote_hit") return "kpi";
   return "bar";
 }
 
@@ -309,16 +329,22 @@ const TITLES: Record<ReportKind, string> = {
   cycle: "Salgssyklus",
   lost_reasons: "Tapsgrunner",
   activity: "Aktivitet per selger",
+  quotes: "Tilbud",
+  quote_margin: "Margin på tilbud",
+  quote_hit: "Hit rate tilbud til vunnet",
+  planned_hours: "Planlagte timer",
 };
 
 function effectiveMeasure(spec: InsightSpec): Measure {
-  if (spec.kind === "average") return "avg";
+  if (spec.kind === "average" || spec.kind === "quote_margin") return "avg";
   if (spec.kind === "cycle") return spec.measure === "count" ? "count" : "avg";
-  if (spec.kind === "activity" || spec.kind === "movement" || spec.kind === "funnel") return "count";
+  if (spec.kind === "activity" || spec.kind === "movement" || spec.kind === "funnel" || spec.kind === "quote_hit") return "count";
   return spec.measure;
 }
 
 function unitFor(kind: ReportKind, measure: Measure): InsightUnit {
+  if (kind === "quote_margin" || kind === "quote_hit") return "percent";
+  if (kind === "planned_hours") return "count";
   if (kind === "cycle") return measure === "count" ? "count" : "days";
   if (kind === "funnel") return "count";
   if (measure === "count" || kind === "activity" || kind === "movement" || kind === "lost_reasons") return "count";
@@ -332,10 +358,14 @@ export function runInsight(
   stages: StageCatalogItem[],
   specInput: Partial<InsightSpec>,
   now: Date,
+  quotes: InsightQuote[] = [],
 ): InsightResult {
   const spec = normalizeSpec(specInput);
   const bounds = periodBounds(spec, now);
   const compareBounds = spec.kind === "forecast" ? null : shiftBounds(bounds, spec.compare);
+  if (spec.kind === "quotes" || spec.kind === "quote_margin" || spec.kind === "quote_hit" || spec.kind === "planned_hours") {
+    return quoteReport(quotes, spec, bounds, compareBounds);
+  }
   if (spec.kind === "funnel") return funnelReport(deals, moves, stages, spec, bounds, compareBounds);
   if (spec.kind === "movement") return movementReport(deals, moves, spec, bounds, compareBounds);
   if (spec.kind === "activity") return activityReport(deals, activities, spec, bounds, compareBounds);
@@ -344,6 +374,127 @@ export function runInsight(
   const current = groupDeals(filtered, spec);
   const previous = compareBounds ? groupDeals(compared, spec) : null;
   return finish(spec, current, previous);
+}
+
+function quoteReport(
+  quotes: InsightQuote[],
+  spec: InsightSpec,
+  bounds: { start: Date; end: Date },
+  compareBounds: { start: Date; end: Date } | null,
+): InsightResult {
+  const filtered = (window: { start: Date; end: Date }) =>
+    quotes.filter((quote) => quoteMatches(quote, spec) && quoteInWindow(quote, spec.kind, window));
+  if (spec.kind === "planned_hours") {
+    const collect = (window: { start: Date; end: Date }) => {
+      const groups = new Map<string, AggRow>();
+      for (const quote of filtered(window)) {
+        const entries = Object.entries(quote.hoursByTrade ?? {}).filter(([, hours]) => hours > 0);
+        const rows = entries.length ? entries : [["uten-fag", 0] as const];
+        for (const [trade, hours] of rows) {
+          const row = groups.get(trade) ?? emptyRow(tradeNameFromCode(trade));
+          row.values.push(hours);
+          const id = quote.dealId || quote.id;
+          if (!row.ids.includes(id)) row.ids.push(id);
+          groups.set(trade, row);
+        }
+      }
+      return groups;
+    };
+    return finish({ ...spec, measure: "sum" }, collect(bounds), compareBounds ? collect(compareBounds) : null);
+  }
+  if (spec.kind === "quote_hit") {
+    const current = filtered(bounds);
+    const previous = compareBounds ? filtered(compareBounds) : [];
+    const rate = (rows: InsightQuote[]) => (rows.length ? round((rows.filter((quote) => quote.status === "accepted").length / rows.length) * 100) : 0);
+    const groups = new Map<string, InsightQuote[]>();
+    for (const quote of current) {
+      const bucket = bucketOf(quoteAsDeal(quote), spec.groupBy, quote.decidedAt ?? quote.createdAt);
+      groups.set(bucket.key, [...(groups.get(bucket.key) ?? []), quote]);
+    }
+    const buckets = [...groups.entries()].map(([key, rows]) => ({
+      key,
+      label: bucketOf(quoteAsDeal(rows[0]!), spec.groupBy, rows[0]!.decidedAt ?? rows[0]!.createdAt).label,
+      value: rate(rows),
+      dealIds: rows.map((quote) => quote.dealId || quote.id),
+    }));
+    sortBuckets(buckets, spec.groupBy);
+    return {
+      title: TITLES.quote_hit,
+      unit: "percent",
+      total: rate(current),
+      compareTotal: compareBounds ? rate(previous) : null,
+      delta: compareBounds && rate(previous) !== 0 ? round(((rate(current) - rate(previous)) / rate(previous)) * 100) : null,
+      dealIds: current.map((quote) => quote.dealId || quote.id),
+      buckets,
+      compareBuckets: null,
+    };
+  }
+  const collect = (window: { start: Date; end: Date }) => {
+    const groups = new Map<string, AggRow>();
+    for (const quote of filtered(window)) {
+      const when = quote.createdAt;
+      const standIn = quoteAsDeal(quote);
+      const primary = bucketOf(standIn, spec.groupBy, when);
+      const row = groups.get(primary.key) ?? emptyRow(primary.label);
+      row.values.push(spec.kind === "quote_margin" ? quote.marginExVat * 100 : quote.valueIncVat);
+      const id = quote.dealId || quote.id;
+      if (!row.ids.includes(id)) row.ids.push(id);
+      groups.set(primary.key, row);
+    }
+    return groups;
+  };
+  return finish(spec, collect(bounds), compareBounds ? collect(compareBounds) : null);
+}
+
+function tradeNameFromCode(code: string): string {
+  const names: Record<string, string> = {
+    riving: "Riving",
+    tomrer: "Tømrer",
+    rorlegger: "Rørlegger",
+    elektriker: "Elektriker",
+    murer: "Murer",
+    maler: "Maler",
+    annet: "Øvrig",
+  };
+  return names[code] ?? code;
+}
+
+function quoteMatches(quote: InsightQuote, spec: InsightSpec): boolean {
+  if (spec.sellerId && quote.ownerId !== spec.sellerId) return false;
+  if (spec.source && quote.source !== spec.source) return false;
+  if (spec.area && quote.area !== spec.area) return false;
+  return true;
+}
+
+function quoteInWindow(quote: InsightQuote, kind: ReportKind, bounds: { start: Date; end: Date }): boolean {
+  if (kind === "quote_hit") return (quote.status === "accepted" || quote.status === "rejected") && inBounds(quote.decidedAt, bounds);
+  if (kind === "planned_hours") return ["approved", "sent", "accepted"].includes(quote.status) && inBounds(quote.createdAt, bounds);
+  return quote.status !== "draft" && inBounds(quote.createdAt, bounds);
+}
+
+function quoteAsDeal(quote: InsightQuote): InsightDeal {
+  return {
+    id: quote.dealId || quote.id,
+    title: quote.id,
+    value: quote.valueIncVat,
+    ownerId: quote.ownerId,
+    ownerName: quote.ownerName,
+    pipelineId: "tilbud",
+    pipelineName: "Tilbud",
+    stageId: quote.status,
+    stageName: quote.status,
+    stageOrder: 0,
+    status: quote.status === "accepted" ? "won" : quote.status === "rejected" ? "lost" : "open",
+    source: quote.source,
+    lostReason: "",
+    area: quote.area,
+    postalCode: "",
+    probability: 0,
+    createdAt: quote.createdAt,
+    wonAt: quote.status === "accepted" ? quote.decidedAt : null,
+    lostAt: quote.status === "rejected" ? quote.decidedAt : null,
+    custom: {},
+  };
 }
 
 function includeDeal(deal: InsightDeal, kind: ReportKind, bounds: { start: Date; end: Date }): boolean {

@@ -232,6 +232,39 @@ export function DocumentForm({ projectId }: { projectId: string }) {
   );
 }
 
+export function StartDateForm({ projectId }: { projectId: string }) {
+  const [message, setMessage] = useState("");
+  return (
+    <form
+      className="row"
+      onSubmit={async (event) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        const plannedStartDate = String(form.get("plannedStartDate") ?? "");
+        if (!plannedStartDate) {
+          setMessage("Velg en dato");
+          return;
+        }
+        try {
+          await send(`/api/projects/${projectId}`, "PATCH", { plannedStartDate });
+          window.location.reload();
+        } catch (error) {
+          setMessage(error instanceof Error ? error.message : "Feil");
+        }
+      }}
+    >
+      <label className="field">
+        <span>Oppstartsdato</span>
+        <input name="plannedStartDate" type="date" required />
+      </label>
+      <button className="btn primary" type="submit">
+        Sett oppstartsdato
+      </button>
+      {message ? <span>{message}</span> : null}
+    </form>
+  );
+}
+
 export function CompleteButton({ projectId, status }: { projectId: string; status: string }) {
   const [message, setMessage] = useState("");
   const completed = status === "completed";

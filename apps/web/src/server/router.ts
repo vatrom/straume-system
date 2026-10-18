@@ -90,8 +90,15 @@ async function dispatch(req: Request, slug: string[], user: SessionUser): Promis
   if (a === "deals" && b && !c && method === "GET") return json(await getDeal(b), 200, req);
   if (a === "deals" && b && !c && method === "PATCH") return json(await updateDeal(user, b, await readJson(req)), 200, req);
   if (a === "deals" && b && c === "win" && method === "POST") {
-    const body = await readJson<{ createProject?: boolean }>(req);
-    return json(await winDeal(user, b, { createProject: Boolean(body.createProject) }), 200, req);
+    const body = await readJson<{ createProject?: boolean; plannedStartDate?: string | null }>(req);
+    return json(
+      await winDeal(user, b, {
+        createProject: Boolean(body.createProject),
+        plannedStartDate: body.plannedStartDate,
+      }),
+      200,
+      req,
+    );
   }
   if (a === "deals" && b && c === "project" && method === "POST") return json(await createProjectFromDeal(user, b), 201, req);
   if (a === "deals" && b && c === "lose" && method === "POST") {

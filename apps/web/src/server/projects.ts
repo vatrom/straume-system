@@ -72,6 +72,7 @@ export async function dashboard(filter: {
   status?: ProjectStatus | "" | "active";
   q?: string;
   year?: string;
+  missingStart?: boolean;
 }) {
   const q = filter.q?.trim();
   const year = Number(filter.year);
@@ -103,15 +104,17 @@ export async function dashboard(filter: {
         }
       : {}),
   };
-  const [projects, openDeals, users, boards] = await Promise.all([
+  const listedWhere = filter.missingStart ? { ...where, plannedStartDate: null } : where;
+  const [projects, openDeals, users, boards, missingStartCount] = await Promise.all([
     prisma.project.findMany({
-      where,
+      where: listedWhere,
       include: { seller: true, projectManager: true, phase: true, board: true, person: true, changes: true },
       orderBy: { updatedAt: "desc" },
     }),
     prisma.deal.aggregate({ where: { status: "open" }, _sum: { valueNok: true }, _count: true }),
     prisma.user.findMany({ where: { active: true }, select: { id: true, name: true, role: true }, orderBy: { name: "asc" } }),
     listBoards(),
+    prisma.project.count({ where: { ...where, plannedStartDate: null } }),
   ]);
   const open = projects.filter((project) => project.status === "open");
   const contract = open.reduce((sum, project) => sum + (dec(project.contractSumNok) ?? 0), 0);
@@ -136,6 +139,7 @@ export async function dashboard(filter: {
       approvedChangesNok: project.changes.filter((change) => change.status === "approved").reduce((sum, change) => sum + (dec(change.amountNok) ?? 0), 0),
       address: address(project),
       plannedStartDate: isoDate(project.plannedStartDate),
+      missingStart: project.plannedStartDate == null,
       plannedEndDate: isoDate(project.plannedEndDate),
       phaseEnteredAt: project.phaseEnteredAt.toISOString(),
       rottenDays: project.phase.rottenDays,
@@ -156,6 +160,7 @@ export async function dashboard(filter: {
       approvedChangesNok: approved,
       openDealValueNok: dec(openDeals._sum.valueNok) ?? 0,
       openDeals: openDeals._count,
+      missingStartCount,
     },
   };
 }

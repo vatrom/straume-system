@@ -91,8 +91,10 @@ function ProjectCardView({ project }: { project: ProjectCard }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: project.id });
   const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`, opacity: isDragging ? 0.7 : 1 } : undefined;
   const marked = project.delayed || project.stagnant;
+  const missingStart = !project.plannedStartDate;
+  const className = ["deal", marked ? "rotten" : "", missingStart ? "missing-start" : ""].filter(Boolean).join(" ");
   return (
-    <article ref={setNodeRef} className={marked ? "deal rotten" : "deal"} style={style} {...listeners} {...attributes}>
+    <article ref={setNodeRef} className={className} style={style} {...listeners} {...attributes}>
       <Link href={`/prosjekter/${project.id}`}>{project.title}</Link>
       <div>{nok(project.contractSumNok)}</div>
       <div className="muted">
@@ -107,8 +109,9 @@ function ProjectCardView({ project }: { project: ProjectCard }) {
       </div>
       {project.personName ? <div className="muted">{project.personName}</div> : null}
       {project.address ? <div className="muted">{project.address}</div> : null}
-      {project.delayed || project.stagnant ? (
+      {missingStart || project.delayed || project.stagnant ? (
         <div className="deal-flags">
+          {missingStart ? <span className="badge missing">Mangler oppstartsdato</span> : null}
           {project.delayed ? <span className="badge rot">Forsinket</span> : null}
           {project.stagnant ? <span className="badge warn">Stagnert</span> : null}
         </div>

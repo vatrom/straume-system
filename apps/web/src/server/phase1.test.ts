@@ -1,5 +1,6 @@
 import { prisma } from "@straume/db";
 import { afterAll, describe, expect, it } from "vitest";
+import { isoDate } from "./dates";
 import { addStage, createDeal, createPipeline, createProjectFromDeal, dealsForBoard, editStage, orderStages, removePipeline, removeStage, winDeal } from "./crm";
 import { adjustPriceList, priceListView } from "./price-admin";
 import { customerView, dashboard, moveProject, updateProject } from "./projects";
@@ -110,6 +111,7 @@ describe("fase 1 mot databasen", () => {
     expect(titles).not.toContain("Lyngveien 3");
     expect(titles).not.toContain("Fiktivveien 9");
     expect(titles).not.toContain("Solsiden 5");
+    expect(titles).not.toContain("Utsikten 6");
     expect(board.deals.every((deal) => deal.status === "open")).toBe(true);
   });
 
@@ -130,6 +132,7 @@ describe("fase 1 mot databasen", () => {
     extraProjects.push(project.id);
     expect(project.title).toBe(deal.title);
     expect(project.dealId).toBe(deal.id);
+    expect(isoDate(project.plannedStartDate)).toBe("2026-12-01");
     await expect(createProjectFromDeal(admin, deal.id)).rejects.toThrow(/allerede et prosjekt/);
     await updateProject(admin, project.id, { status: "completed" });
     await expect(moveProject(admin, project.id, "21000000-0000-4000-8000-000000000002")).rejects.toThrow(/Gjenåpne/);
@@ -148,5 +151,41 @@ describe("fase 1 mot databasen", () => {
     const havn = active.projects.find((project) => project.title === "Havneveien 15");
     expect(havn?.delayed).toBe(true);
     expect(havn?.stagnant).toBe(true);
+    const withoutDate = active.projects.find((project) => project.title === "Utsikten 6");
+    expect(withoutDate?.missingStart).toBe(true);
+    expect(withoutDate?.plannedStartDate).toBeNull();
+    const onlyMissing = await dashboard({ status: "active", boardId, missingStart: true });
+    expect(onlyMissing.projects.map((project) => project.title)).toContain("Utsikten 6");
+    expect(onlyMissing.projects.every((project) => project.plannedStartDate == null)).toBe(true);
+    expect(onlyMissing.kpis.missingStartCount).toBe(onlyMissing.projects.length);
+  });
+
+  it("lar oppstartsdato settes eller stå tom når prosjektet opprettes", async () => {
+    const stamp = Date.now();
+    const chosen = await createDeal(admin, {
+      title: `Dato ${stamp}`,
+      valueNok: 100000,
+      pipelineId: "10000000-0000-4000-8000-000000000001",
+      stageId: "11000000-0000-4000-8000-000000000001",
+      plannedStartDate: "2026-11-01",
+    });
+    extraDeals.push(chosen.id);
+    const withDate = await winDeal(admin, chosen.id, { createProject: true, plannedStartDate: "2027-04-15" });
+    if (!withDate.project) throw new Error("Mangler prosjekt");
+    extraProjects.push(withDate.project.id);
+    expect(isoDate(withDate.project.plannedStartDate)).toBe("2027-04-15");
+
+    const empty = await createDeal(admin, {
+      title: `Tom dato ${stamp}`,
+      valueNok: 90000,
+      pipelineId: "10000000-0000-4000-8000-000000000001",
+      stageId: "11000000-0000-4000-8000-000000000001",
+      plannedStartDate: "2026-11-01",
+    });
+    extraDeals.push(empty.id);
+    const without = await winDeal(admin, empty.id, { createProject: true, plannedStartDate: null });
+    if (!without.project) throw new Error("Mangler prosjekt");
+    extraProjects.push(without.project.id);
+    expect(without.project.plannedStartDate).toBeNull();
   });
 });

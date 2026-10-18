@@ -158,7 +158,11 @@ export default async function ProjectsPage({
                   <div className="muted">{project.boardName}</div>
                 </td>
                 <td>
-                  {dato(project.plannedStartDate)}
+                  {project.plannedStartDate ? (
+                    dato(project.plannedStartDate)
+                  ) : (
+                    <span className="badge missing">Mangler oppstartsdato</span>
+                  )}
                   <div className="muted">Ferdig {dato(project.plannedEndDate)}</div>
                 </td>
                 <td>{project.sellerName}</td>

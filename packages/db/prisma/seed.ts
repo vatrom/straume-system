@@ -199,6 +199,68 @@ async function ensureDealProjectSplit() {
       phaseEnteredAt: day("2025-06-18"),
     },
   });
+
+  const utsiktPerson = id(8, "40000000");
+  await prisma.person.upsert({
+    where: { id: utsiktPerson },
+    update: {},
+    create: {
+      id: utsiktPerson,
+      firstName: "Tone",
+      lastName: "Utsikt",
+      email: "tone.utsikt@example.com",
+      phone: "40000008",
+      street: "Utsikten",
+      houseNumber: "6",
+      postalCode: "5353",
+      city: "Straume",
+      country: "Norge",
+      label: "Kunde",
+      ownerId: USERS.mia,
+    },
+  });
+  const utsiktDeal = id(11, "50000000");
+  await prisma.deal.upsert({
+    where: { id: utsiktDeal },
+    update: {},
+    create: {
+      id: utsiktDeal,
+      title: "Utsikten 6",
+      valueNok: 364000,
+      ownerId: USERS.mia,
+      personId: utsiktPerson,
+      pipelineId: PIPE.salg,
+      stageId: STAGE.slutt,
+      sourceChannel: "Tok direkte kontakt på tlf/mail",
+      plannedStartDate: null,
+      stageEnteredAt: day("2026-10-14"),
+      status: "won",
+      wonAt: day("2026-10-16"),
+    },
+  });
+  await prisma.project.upsert({
+    where: { id: id(4, "60000000") },
+    update: {},
+    create: {
+      id: id(4, "60000000"),
+      title: "Utsikten 6",
+      dealId: utsiktDeal,
+      personId: utsiktPerson,
+      sellerId: USERS.mia,
+      projectManagerId: USERS.mia,
+      boardId: BOARD.rehab,
+      phaseId: PHASE.mottatt,
+      status: "open",
+      contractSumNok: 364000,
+      street: "Utsikten",
+      houseNumber: "6",
+      postalCode: "5353",
+      city: "Straume",
+      municipality: "Øygarden",
+      plannedStartDate: null,
+      phaseEnteredAt: new Date(),
+    },
+  });
 }
 
 async function main() {

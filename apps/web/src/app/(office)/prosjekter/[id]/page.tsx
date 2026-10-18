@@ -1,4 +1,4 @@
-import { CompleteButton, CustomerPreview, ChangeForm, DocumentForm, ProjectForm, WinnerButton } from "./actions";
+import { CompleteButton, CustomerPreview, ChangeForm, DocumentForm, ProjectForm, StartDateForm, WinnerButton } from "./actions";
 import { nok } from "@/lib/format";
 import { staff } from "@/server/crm";
 import { dec, isoDate } from "@/server/dates";
@@ -41,6 +41,15 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
           <WinnerButton projectId={project.id} />
         </div>
       </div>
+      {!project.plannedStartDate ? (
+        <section className="card stack" style={{ marginBottom: 16 }}>
+          <div>
+            <span className="badge missing">Mangler oppstartsdato</span>
+          </div>
+          <p className="muted">Prosjektet har ingen planlagt oppstart. Datoen kan settes her, og endres senere i skjemaet under.</p>
+          <StartDateForm projectId={project.id} />
+        </section>
+      ) : null}
       <div className="kpis">
         <div className="card kpi">
           <div className="label">Kontraktsum</div>

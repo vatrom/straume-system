@@ -327,18 +327,32 @@ export async function updateDeal(user: { id: string; role: string }, id: string,
   return updated;
 }
 
-export async function winDeal(user: { id: string; role: string }, id: string, options?: { createProject?: boolean }) {
+export async function winDeal(
+  user: { id: string; role: string },
+  id: string,
+  options?: { createProject?: boolean; plannedStartDate?: string | null },
+) {
   const deal = await prisma.deal.findUnique({ where: { id }, include: { project: true } });
   if (!deal) throw new DomainError("Fant ikke salgsavtalen");
   if (deal.status !== "open") throw new DomainError("Avtalen er allerede lukket");
   if (deal.project) throw new DomainError("Avtalen har allerede et prosjekt");
   const won = await prisma.deal.update({ where: { id }, data: { status: "won", wonAt: new Date() } });
   await audit(user.id, "deal.win", "deal", id);
-  const project = options?.createProject ? await createProjectFromDeal(user, id) : null;
+  const project = options?.createProject
+    ? await createProjectFromDeal(
+        user,
+        id,
+        options.plannedStartDate !== undefined ? { plannedStartDate: options.plannedStartDate } : undefined,
+      )
+    : null;
   return { deal: won, project };
 }
 
-export async function createProjectFromDeal(user: { id: string; role: string }, dealId: string) {
+export async function createProjectFromDeal(
+  user: { id: string; role: string },
+  dealId: string,
+  options?: { plannedStartDate?: string | null },
+) {
   const deal = await prisma.deal.findUnique({ where: { id: dealId }, include: { person: true, project: true } });
   if (!deal) throw new DomainError("Fant ikke salgsavtalen");
   if (deal.status !== "won") throw new DomainError("Bare en vunnet salgsavtale kan bli et prosjekt");
@@ -366,7 +380,7 @@ export async function createProjectFromDeal(user: { id: string; role: string }, 
         city: deal.person?.city,
         municipality: deal.person?.municipality,
         contractSumNok: deal.valueNok,
-        plannedStartDate: deal.plannedStartDate,
+        plannedStartDate: options ? asDate(options.plannedStartDate) : deal.plannedStartDate,
         phaseEnteredAt: new Date(),
       },
     });

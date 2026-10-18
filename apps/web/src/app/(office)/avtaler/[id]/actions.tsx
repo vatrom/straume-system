@@ -35,12 +35,14 @@ export function DealActions({
   stages,
   stageId,
   reasons,
+  plannedStartDate,
 }: {
   id: string;
   status: string;
   stages: { id: string; name: string }[];
   stageId: string;
   reasons: string[];
+  plannedStartDate: string;
 }) {
   const router = useRouter();
   const [error, setError] = useState("");
@@ -118,18 +120,32 @@ export function DealActions({
             Merk som vunnet
           </button>
           {confirmWin ? (
-            <div className="card stack" role="dialog" aria-labelledby="vinn-tittel">
+            <form
+              className="card stack"
+              role="dialog"
+              aria-labelledby="vinn-tittel"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const form = new FormData(event.currentTarget);
+                const start = String(form.get("plannedStartDate") ?? "");
+                void send(`/api/deals/${id}/win`, { createProject: true, plannedStartDate: start || null });
+              }}
+            >
               <h3 id="vinn-tittel">Opprette prosjekt?</h3>
               <p>Avtalen markeres som vunnet. Et prosjekt med samme navn kan opprettes nå. Kunde, kontraktssum, selger, befaring og dokumenter følger med. En avtale kan bare ha ett prosjekt.</p>
+              <label className="field">
+                <span>Oppstartsdato (valgfritt)</span>
+                <input name="plannedStartDate" type="date" defaultValue={plannedStartDate} />
+              </label>
               <div className="row">
                 <button className="btn" type="button" onClick={() => void send(`/api/deals/${id}/win`, { createProject: false })}>
                   Bare marker som vunnet
                 </button>
-                <button className="btn primary" type="button" onClick={() => void send(`/api/deals/${id}/win`, { createProject: true })}>
+                <button className="btn primary" type="submit">
                   Marker som vunnet og opprett prosjekt
                 </button>
               </div>
-            </div>
+            </form>
           ) : null}
           <form
             className="stack"

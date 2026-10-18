@@ -8,15 +8,28 @@ import Link from "next/link";
 export default async function ProjectBoardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ boardId?: string; sellerId?: string; projectManagerId?: string }>;
+  searchParams: Promise<{ boardId?: string; sellerId?: string; projectManagerId?: string; missingStart?: string }>;
 }) {
   const query = await searchParams;
   const user = await currentUser();
   const boards = await listBoards();
   const current = boards.find((board) => board.id === query.boardId) ?? boards[0];
+  const missingStart = query.missingStart === "1";
   const data = current
-    ? await dashboard({ boardId: current.id, sellerId: query.sellerId, projectManagerId: query.projectManagerId, status: "active" })
+    ? await dashboard({
+        boardId: current.id,
+        sellerId: query.sellerId,
+        projectManagerId: query.projectManagerId,
+        status: "active",
+        missingStart,
+      })
     : null;
+  const filterParams = new URLSearchParams();
+  if (current?.id) filterParams.set("boardId", current.id);
+  if (query.sellerId) filterParams.set("sellerId", query.sellerId);
+  if (query.projectManagerId) filterParams.set("projectManagerId", query.projectManagerId);
+  if (!missingStart) filterParams.set("missingStart", "1");
+  const missingHref = `/prosjekter/tavle?${filterParams.toString()}`;
   const delayed = data?.projects.filter((project) => project.delayed).length ?? 0;
   const stagnant = data?.projects.filter((project) => project.stagnant).length ?? 0;
   const contract = data?.projects.reduce((sum, project) => sum + (project.contractSumNok ?? 0), 0) ?? 0;
@@ -49,6 +62,10 @@ export default async function ProjectBoardPage({
             <div className="label">Stagnert</div>
             <strong>{stagnant}</strong>
           </div>
+          <Link className={missingStart ? "card kpi on" : "card kpi"} href={missingHref}>
+            <div className="label">Uten oppstartsdato</div>
+            <strong>{data.kpis.missingStartCount}</strong>
+          </Link>
         </div>
       ) : null}
       <form className="filters" method="get">
@@ -75,6 +92,13 @@ export default async function ProjectBoardPage({
             </option>
           ))}
         </select>
+        <label className="field">
+          <span>Oppstart</span>
+          <select name="missingStart" defaultValue={missingStart ? "1" : ""}>
+            <option value="">Alle</option>
+            <option value="1">Uten oppstartsdato</option>
+          </select>
+        </label>
         <button className="btn" type="submit">
           Vis
         </button>

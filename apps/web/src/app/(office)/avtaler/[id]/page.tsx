@@ -44,6 +44,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
           stages={deal.pipeline.stages.map((stage) => ({ id: stage.id, name: stage.name }))}
           stageId={deal.stageId}
           reasons={reasons}
+          plannedStartDate={isoDate(deal.plannedStartDate) ?? ""}
         />
       </div>
     </>

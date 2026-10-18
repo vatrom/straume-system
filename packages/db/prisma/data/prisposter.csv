@@ -1,0 +1,111 @@
+kategori,kategori_navn,sortering,navn,type,enhet,salgspris_eks_mva,prisformel,underark,underark_rad,enhet_underark,materialkost_pr_enhet,materialkost_formel,paslag_material,materialpris_pr_enhet,timer_pr_enhet,timesats,arbeidspris_pr_enhet,salgspris_underark,mengde_mal,mengdeformel_mal,linjeformel,mengde_hallskaret,pris_hallskaret,regneark_rad,merknad
+riving,Rivningsarbeid,1,Timeforbruk riving,timer,Stk,930,,Riving + Tømrer,3,Stk,0,,,0,1,930,930,930,20,,=B6*D6,12,930,6,
+riving,Rivningsarbeid,2,Avfallshåndtering,enhetspris,Kg,2.64,"=VLOOKUP(A7,'Riving + Tømrer'!A:P,2,FALSE)",Riving + Tømrer,4,Kg,2.2,,0.2,2.64,0,930,0,2.64,2000,,=B7*D7,2000,2.64,7,
+riving,Rivningsarbeid,3,Container henting,enhetspris,stk,2160,"=VLOOKUP(A8,'Riving + Tømrer'!A:P,2,FALSE)",Riving + Tømrer,5,stk,1800,=1800,0.2,2160,0,930,0,2160,1,,=B8*D8,1,2160,8,
+riving,Rivningsarbeid,4,Oppmøte,oppmote,stk,450,,Riving + Tømrer,6,stk,0,,0,0,0,0,0,450,2,,=B9*D9,2,450,9,
+tomrer,Tømrer,1,"Baderomsplater, FIBO. 840,-/m2. (arbeid og materiell)",enhetspris,m2,1615.04,"=VLOOKUP(A13,'Riving + Tømrer'!A:P,2,FALSE)",Riving + Tømrer,10,m2,806.4,=672*1.2,0.1,887.04,0.8,910,728,1615.04,0,,=B13*D13,0,1615.04,13,
+tomrer,Tømrer,2,Membranplater 20mm (arbeid og materiell),enhetspris,Stk,679.5,"=VLOOKUP(A14,'Riving + Tømrer'!A:P,2,FALSE)",Riving + Tømrer,11,Stk,180,,0.5,270,0.45,910,409.5,679.5,20,=(B1/0.6)*1.2,=B14*D14,23.4,679.5,14,
+tomrer,Tømrer,3,Membranplater 12mm (arbeid og materiell),enhetspris,Stk,709.5,"=VLOOKUP(A15,'Riving + Tømrer'!A:P,2,FALSE)",Riving + Tømrer,12,Stk,200,,0.5,300,0.45,910,409.5,709.5,0,,=B15*D15,0,709.5,15,
+tomrer,Tømrer,4,Gipshimling (arbeid og materiell),enhetspris,m2,503.75,"=VLOOKUP(A16,'Riving + Tømrer'!A:P,2,FALSE)",Riving + Tømrer,13,m2,72.5,,0.3,94.25,0.45,910,409.5,503.75,5,=B3,=B16*D16,17,503.75,16,
+tomrer,Tømrer,5,Gipsvegger (arbeid og materiell),enhetspris,m2,503.75,"=VLOOKUP(A17,'Riving + Tømrer'!A:P,2,FALSE)",Riving + Tømrer,14,m2,72.5,,0.3,94.25,0.45,910,409.5,503.75,0,,=B17*D17,44,503.75,17,
+tomrer,Tømrer,6,15mm kryssfiner (arbeid og materiell),enhetspris,m2,646,"=VLOOKUP(A18,'Riving + Tømrer'!A:P,2,FALSE)",Riving + Tømrer,15,m2,188,,0.5,282,0.4,910,364,646,0,,=B18*D18,0,646,18,
+tomrer,Tømrer,7,Aquaproplater (Arbeid og materiell),enhetspris,m2,566,"=VLOOKUP(A19,'Riving + Tømrer'!A:P,2,FALSE)",Riving + Tømrer,16,m2,165,,0.5,247.5,0.35,910,318.5,566,0,,=B19*D19,0,566,19,
+tomrer,Tømrer,8,Tilpasse eksisterende dør (arbeid og materiell),enhetspris,stk,5694,"=VLOOKUP(A20,'Riving + Tømrer'!A:P,2,FALSE)",Riving + Tømrer,17,stk,880,,0.3,1144,5,910,4550,5694,1,,=B20*D20,0,5694,20,
+tomrer,Tømrer,9,Ny dør (arbeid og materiell),enhetspris,Stk,9759.1,"=VLOOKUP(A21,'Riving + Tømrer'!A:P,2,FALSE)",Riving + Tømrer,18,Stk,3307,,0.3,4299.1,6,910,5460,9759.1,0,,=B21*D21,2,9759.1,21,
+tomrer,Tømrer,10,"Vindu, opp til 70x70 størrelse (arbeid og materiell)",enhetspris,Stk,10153,"=VLOOKUP(A22,'Riving + Tømrer'!A:P,2,FALSE)",Riving + Tømrer,19,Stk,3960,,0.3,5148,5.5,910,5005,10153,0,,=B22*D22,0,10153,22,
+tomrer,Tømrer,11,"Vindu, opp til 120x120 størrelse (arbeid og materiell)",enhetspris,Stk,13392.6,"=VLOOKUP(A23,'Riving + Tømrer'!A:P,2,FALSE)",Riving + Tømrer,20,Stk,5402,,0.3,7022.6,7,910,6370,13392.6,0,,=B23*D23,0,13392.6,23,
+tomrer,Tømrer,12,"Oppretting og spikerslag, timesarbeid",timer,t,910,"=VLOOKUP(A24,'Riving + Tømrer'!A:P,2,FALSE)",Riving + Tømrer,21,t,0,,,0,1,910,910,910,14,,=B24*D24,0,910,24,
+tomrer,Tømrer,13,"Undergulv, timesarbeid",timer,t,910,"=VLOOKUP(A25,'Riving + Tømrer'!A:P,2,FALSE)",Riving + Tømrer,22,t,0,,,0,1,910,910,910,4,,=B25*D25,0,910,25,
+tomrer,Tømrer,14,"Byggeledelse, administrasjon",timer,t,1150,"=VLOOKUP(A26,'Riving + Tømrer'!A:P,2,FALSE)",Riving + Tømrer,23,t,0,,,0,1,1150,1150,1150,8,,=B26*D26,8,1150,26,
+tomrer,Tømrer,15,Materiell,enhetspris,stk,1000,"=VLOOKUP(A27,'Riving + Tømrer'!A:P,2,FALSE)",Riving + Tømrer,24,stk,800,,0.25,1000,0,910,0,1000,8,,=B27*D27,12,1000,27,
+tomrer,Tømrer,16,ANNET - LEGG INN BESKRIVELSE,fritekst,stk,0,,,,,,,,,,,,,0,,=B28*D28,0,0,28,
+tomrer,Tømrer,17,ANNET - LEGG INN BESKRIVELSE,fritekst,stk,0,,,,,,,,,,,,,0,,=B29*D29,0,0,29,
+tomrer,Tømrer,18,Oppmøte tømrer,oppmote,Km,450,,Riving + Tømrer,25,stk,,,,0,,910,0,500,5,,=B30*D30,5,450,30,Pris i Regneark (450) avviker fra underark (500); Enhet avviker: Regneark 'Km' vs underark 'stk'
+tomrer,Tømrer,19,Timeforbruk Tømrer - DIVERSE,timer,t,890,,Riving + Tømrer,26,t,0,,0,0,1,910,910,910,2,,=B31*D31,48,890,31,Pris i Regneark (890) avviker fra underark (910)
+elektriker,Elektriker,1,Demontering,enhetspris,stk,3800,,,,,,,,,,,,,0,,=B35*D35,0,3800,35,Kun salgspris; ingen kost/timeoppdeling i arket
+elektriker,Elektriker,2,"Downlight, LED",enhetspris,stk,1510,,,,,,,,,,,,,4,,=B36*D36,10,1510,36,Kun salgspris; ingen kost/timeoppdeling i arket
+elektriker,Elektriker,3,Lyspunkt,enhetspris,stk,1115,,,,,,,,,,,,,1,,=B37*D37,1,1115,37,Kun salgspris; ingen kost/timeoppdeling i arket
+elektriker,Elektriker,4,Lysbryter,enhetspris,stk,1115,,,,,,,,,,,,,1,,=B38*D38,1,1115,38,Kun salgspris; ingen kost/timeoppdeling i arket
+elektriker,Elektriker,5,Dimmer,enhetspris,stk,1510,,,,,,,,,,,,,1,,=B39*D39,2,1510,39,Kun salgspris; ingen kost/timeoppdeling i arket
+elektriker,Elektriker,6,"Stikkontakt, dobbel",enhetspris,stk,1390,,,,,,,,,,,,,1,,=B40*D40,8,1390,40,Kun salgspris; ingen kost/timeoppdeling i arket
+elektriker,Elektriker,7,"Tilkobling håndkletørker, spyledo etc",timer,t,1190,,,,,,,,,,,,,0,,=B41*D41,0,1190,41,Kun salgspris; ingen kost/timeoppdeling i arket
+elektriker,Elektriker,8,Avtrekksvifte,enhetspris,stk,4140,,,,,,,,,,,,,1,,=B42*D42,1,4140,42,Kun salgspris; ingen kost/timeoppdeling i arket
+elektriker,Elektriker,9,Varmekabler,enhetspris,m2,1440,,,,,,,,,,,,,5,=B3,=B43*D43,6.6,1440,43,Kun salgspris; ingen kost/timeoppdeling i arket
+elektriker,Elektriker,10,"Varmekabler, lavtbyggende",enhetspris,m2,1665,,,,,,,,,,,,,0,,=B44*D44,0,1665,44,Kun salgspris; ingen kost/timeoppdeling i arket
+elektriker,Elektriker,11,Termostat,enhetspris,stk,1895,,,,,,,,,,,,,1,,=B45*D45,1,1895,45,Kun salgspris; ingen kost/timeoppdeling i arket
+elektriker,Elektriker,12,Kurs 15A,enhetspris,stk,3500,,,,,,,,,,,,,0,,=B46*D46,1,1030,46,Kun salgspris; ingen kost/timeoppdeling i arket
+elektriker,Elektriker,13,ANNET - LEGG INN BESKRIVELSE,fritekst,stk,0,,,,,,,,,,,,,0,,=B47*D47,0,0,47,Kun salgspris; ingen kost/timeoppdeling i arket
+elektriker,Elektriker,14,Oppmøte elektriker,oppmote,stk,550,,,,,,,,,,,,,3,,=B48*D48,3,550,48,Kun salgspris; ingen kost/timeoppdeling i arket
+elektriker,Elektriker,15,Timeforbruk Elektriker,timer,t,1190,,,,,,,,,,,,,2,,=B49*D49,4,1190,49,Kun salgspris; ingen kost/timeoppdeling i arket
+rorlegger,Rørlegger,1,Demontering,enhetspris,stk,4455,"=VLOOKUP(A53,Rørlegger!A:P,2,FALSE)",Rørlegger,2,stk,0,,0,0,4.5,990,4455,4455,0,,=B53*D53,0,4455,53,Navn har mellomrom på slutten (betydning for VLOOKUP)
+rorlegger,Rørlegger,2,Montering av innredning,enhetspris,stk,4455,"=VLOOKUP(A54,Rørlegger!A:P,2,FALSE)",Rørlegger,3,stk,0,,0,0,4.5,990,4455,4455,0,,=B54*D54,0,4455,54,
+rorlegger,Rørlegger,3,"Dusjbatteri, garnityr og servantbatteri",enhetspris,stk,4468.2,"=VLOOKUP(A55,Rørlegger!A:P,2,FALSE)",Rørlegger,4,stk,1808,=375+962+471,0.65,2983.2,1.5,990,1485,4468.2,0,,=B55*D55,0,4468.2,55,
+rorlegger,Rørlegger,4,"Sistern, komplett",enhetspris,stk,9405.87,"=VLOOKUP(A56,Rørlegger!A:P,2,FALSE)",Rørlegger,5,stk,4620.58,=(1003+773+95+2320)*1.05*1.05,0.5,6930.87,2.5,990,2475,9405.87,0,,=B56*D56,0,9405.87,56,
+rorlegger,Rørlegger,5,Gulvklosett Porsgrund Sign 6860 ink montering,enhetspris,stk,7067.53,"=VLOOKUP(A57,Rørlegger!A:P,2,FALSE)",Rørlegger,6,stk,4341.09,=3750*1.05*1.05*1.05,0.4,6077.53,1,990,990,7067.53,0,,=B57*D57,0,7067.53,57,
+rorlegger,Rørlegger,6,Vaskekar (Vk intra 50),enhetspris,stk,3724.2,"=VLOOKUP(A58,Rørlegger!A:P,2,FALSE)",Rørlegger,7,stk,1953,=1860*1.05,0.4,2734.2,1,990,990,3724.2,0,,=B58*D58,0,3724.2,58,
+rorlegger,Rørlegger,7,"Alterna Pro Veggkran, med svingtut",enhetspris,stk,1433,"=VLOOKUP(A59,Rørlegger!A:P,2,FALSE)",Rørlegger,8,stk,670,,0.4,938,0.5,990,495,1433,0,,=B59*D59,0,1433,59,
+rorlegger,Rørlegger,8,VikingBad Tenge badekarsbatteri,enhetspris,stk,2679,"=VLOOKUP(A60,Rørlegger!A:P,2,FALSE)",Rørlegger,9,stk,1560,,0.4,2184,0.5,990,495,2679,0,,=B60*D60,1,2679,60,
+rorlegger,Rørlegger,9,HansGrohe Ecostat 1001 CL Badekar/dusj,enhetspris,stk,3127,"=VLOOKUP(A61,Rørlegger!A:P,2,FALSE)",Rørlegger,10,stk,1880,,0.4,2632,0.5,990,495,3127,0,,=B61*D61,0,3127,61,
+rorlegger,Rørlegger,10,VM-kran og trakt,enhetspris,stk,1857.45,"=VLOOKUP(A62,Rørlegger!A:P,2,FALSE)",Rørlegger,11,stk,619.605,=562*1.05*1.05,0.4,867.447,1,990,990,1857.45,0,,=B62*D62,1,1857.45,62,
+rorlegger,Rørlegger,11,Standard sluk inkludert opplegg,enhetspris,stk,5076.88,"=VLOOKUP(A63,Rørlegger!A:P,2,FALSE)",Rørlegger,12,stk,1504.91,=1365*1.05*1.05,0.4,2106.88,3,990,2970,5076.88,0,,=B63*D63,2,5076.88,63,
+rorlegger,Rørlegger,12,Slukforhøyer,enhetspris,stk,1323.15,"=VLOOKUP(A64,Rørlegger!A:P,2,FALSE)",Rørlegger,13,stk,414.75,=395*1.05,0.4,580.65,0.75,990,742.5,1323.15,0,,=B64*D64,0,1323.15,64,
+rorlegger,Rørlegger,13,"Slukrenne, 80cm Purus line",enhetspris,stk,4801.5,"=VLOOKUP(A65,Rørlegger!A:P,2,FALSE)",Rørlegger,14,stk,2310,=2200*1.05,0.5,3465,1.35,990,1336.5,4801.5,0,,=B65*D65,0,4801.5,65,
+rorlegger,Rørlegger,14,Tillegg for sort slukrist (gjelder 800-1000mm),enhetspris,stk,3795.4,"=VLOOKUP(A66,Rørlegger!A:P,2,FALSE)",Rørlegger,15,stk,2711,,0.4,3795.4,0,990,0,3795.4,0,,=B66*D66,0,3795.4,66,
+rorlegger,Rørlegger,15,Tillegg for Tile insert (gjelder 800-1000mm),enhetspris,stk,1970,"=VLOOKUP(A67,Rørlegger!A:P,2,FALSE)",Rørlegger,16,stk,700,,0.4,980,1,990,990,1970,0,,=B67*D67,0,1970,67,
+rorlegger,Rørlegger,16,Hjørnesluk,enhetspris,stk,6794.32,"=VLOOKUP(A68,Rørlegger!A:P,2,FALSE)",Rørlegger,17,stk,3898.44,=3570*1.04*1.05,0.4,5457.82,1.35,990,1336.5,6794.32,0,,=B68*D68,0,6794.32,68,
+rorlegger,Rørlegger,17,Avløpspunkt skjult,enhetspris,stk,2462.36,"=VLOOKUP(A69,Rørlegger!A:P,2,FALSE)",Rørlegger,18,stk,592.043,=537*1.05*1.05,0.4,828.86,1.65,990,1633.5,2462.36,0,,=B69*D69,1,2462.36,69,
+rorlegger,Rørlegger,18,Vannpunkt,enhetspris,stk,2954.57,"=VLOOKUP(A70,Rørlegger!A:P,2,FALSE)",Rørlegger,19,stk,1099.19,=997*1.05*1.05,0.4,1538.87,1.43,990,1415.7,2954.57,0,,=B70*D70,5,2954.57,70,
+rorlegger,Rørlegger,19,Vannpunkt - eksisterende rør i rør beholdes,enhetspris,stk,1088.14,"=VLOOKUP(A71,Rørlegger!A:P,2,FALSE)",Rørlegger,20,stk,282.24,=(80+176)*1.05*1.05,0.4,395.136,0.7,990,693,1088.14,0,,=B71*D71,0,1088.14,71,
+rorlegger,Rørlegger,20,"Koblingsskap, standard",enhetspris,stk,9787.09,"=VLOOKUP(A72,Rørlegger!A:P,2,FALSE)",Rørlegger,21,stk,3935.93,=3570*1.05*1.05,0.4,5510.3,4.32,990,4276.8,9787.09,0,,=B72*D72,0,9787.09,72,
+rorlegger,Rørlegger,21,Utekran,enhetspris,stk,5954.22,"=VLOOKUP(A73,Rørlegger!A:P,2,FALSE)",Rørlegger,22,stk,3439.8,=3120*1.05*1.05,0.4,4815.72,1.15,990,1138.5,5954.22,0,,=B73*D73,0,5954.22,73,
+rorlegger,Rørlegger,22,Utekran dobbel (varmt+kaldt),enhetspris,stk,12291,"=VLOOKUP(A74,Rørlegger!A:P,2,FALSE)",Rørlegger,23,stk,7223.58,=F22*2*1.05,0.4,10113,2.2,990,2178,12291,0,,=B74*D74,0,12291,74,
+rorlegger,Rørlegger,23,Høyax 120L benkebereder,enhetspris,stk,10186.6,"=VLOOKUP(A75,Rørlegger!A:P,2,FALSE)",Rørlegger,24,stk,5402.25,=5145*1.05,0.4,7563.15,2.65,990,2623.5,10186.6,0,,=B75*D75,0,10186.6,75,
+rorlegger,Rørlegger,24,Høyaks 200L,enhetspris,stk,8989.65,"=VLOOKUP(A76,Rørlegger!A:P,2,FALSE)",Rørlegger,25,stk,4299.75,=4095*1.05,0.4,6019.65,3,990,2970,8989.65,0,,=B76*D76,0,8989.65,76,
+rorlegger,Rørlegger,25,Høyaks 300L(NB: trekker mer effekt),enhetspris,stk,12411.5,"=VLOOKUP(A77,Rørlegger!A:P,2,FALSE)",Rørlegger,26,stk,6284.25,=5985*1.05,0.4,8797.95,3.65,990,3613.5,12411.5,0,,=B77*D77,0,12411.5,77,
+rorlegger,Rørlegger,26,Smartbereder Høiax Connected 200,enhetspris,stk,14237.5,"=VLOOKUP(A78,Rørlegger!A:P,2,FALSE)",Rørlegger,27,stk,8048.25,=7665*1.05,0.4,11267.5,3,990,2970,14237.5,0,,=B78*D78,0,14237.5,78,
+rorlegger,Rørlegger,27,Smartbereder Høiax Connected 300,enhetspris,stk,16626.3,"=VLOOKUP(A79,Rørlegger!A:P,2,FALSE)",Rørlegger,28,stk,9754.5,=9290*1.05,0.4,13656.3,3,990,2970,16626.3,0,,=B79*D79,1,16626.3,79,
+rorlegger,Rørlegger,28,Spillbakke Høiax,enhetspris,stk,2115.25,"=VLOOKUP(A80,Rørlegger!A:P,2,FALSE)",Rørlegger,29,stk,1298.75,=1039*1.25,0.4,1818.25,0.3,990,297,2115.25,0,,=B80*D80,0,2115.25,80,
+rorlegger,Rørlegger,29,Brannslange NOHA 13mm 22m. Inkludert ventil,enhetspris,stk,2875.37,"=VLOOKUP(A81,Rørlegger!A:P,2,FALSE)",Rørlegger,30,stk,1099.19,=997*1.05*1.05,0.4,1538.87,1.35,990,1336.5,2875.37,0,,=B81*D81,0,2875.37,81,
+rorlegger,Rørlegger,30,Magnetventil (dobbel for kjøkken),enhetspris,stk,6114.38,"=VLOOKUP(A82,Rørlegger!A:P,2,FALSE)",Rørlegger,31,stk,2756.25,=2500*1.05*1.05,0.5,4134.38,2,990,1980,6114.38,0,,=B82*D82,0,6114.38,82,
+rorlegger,Rørlegger,31,Magnetventil i fordelerskap med 1 trådløs sensor,enhetspris,stk,5702.59,"=VLOOKUP(A83,Rørlegger!A:P,2,FALSE)",Rørlegger,32,stk,2481.73,=2251*1.05*1.05,0.5,3722.59,2,990,1980,5702.59,0,,=B83*D83,0,5702.59,83,
+rorlegger,Rørlegger,32,"Ekstra sensor, trådløs",enhetspris,stk,1369.83,"=VLOOKUP(A84,Rørlegger!A:P,2,FALSE)",Rørlegger,33,stk,583.222,=529*1.05*1.05,0.5,874.834,0.5,990,495,1369.83,0,,=B84*D84,0,1369.83,84,
+rorlegger,Rørlegger,33,Tilbakeslagsventil og eksp.kar,enhetspris,stk,6706.35,"=VLOOKUP(A85,Rørlegger!A:P,2,FALSE)",Rørlegger,34,stk,2315.25,=2100*1.05*1.05,0.4,3241.35,3.5,990,3465,6706.35,0,,=B85*D85,0,6706.35,85,
+rorlegger,Rørlegger,34,Reduksjonsventil,enhetspris,stk,3528.81,"=VLOOKUP(A86,Rørlegger!A:P,2,FALSE)",Rørlegger,35,stk,1389.15,=1260*1.05*1.05,0.4,1944.81,1.6,990,1584,3528.81,0,,=B86*D86,0,3528.81,86,
+rorlegger,Rørlegger,35,Vannmåler,enhetspris,stk,8178.52,"=VLOOKUP(A87,Rørlegger!A:P,2,FALSE)",Rørlegger,36,stk,3472.88,=3150*1.05*1.05,0.4,4862.02,3.35,990,3316.5,8178.52,0,,=B87*D87,0,8178.52,87,
+rorlegger,Rørlegger,36,Scala2 trykkøkningspumpe,enhetspris,stk,13774.5,"=VLOOKUP(A88,Rørlegger!A:P,2,FALSE)",Rørlegger,37,stk,7717.5,=(6600+400)*1.05*1.05,0.4,10804.5,3,990,2970,13774.5,0,,=B88*D88,0,13774.5,88,
+rorlegger,Rørlegger,37,Rør i rør (kun rør - ikke andre deler eller arbeid),enhetspris,lm,39.69,"=VLOOKUP(A89,Rørlegger!A:P,2,FALSE)",Rørlegger,38,stk,28.35,=27*1.05,0.4,39.69,0,990,0,39.69,0,,=B89*D89,0,39.69,89,Enhet avviker: Regneark 'lm' vs underark 'stk'
+rorlegger,Rørlegger,38,Standard bad,pakke,stk,58595.9,"=VLOOKUP(A90,Rørlegger!A:P,2,FALSE)",Rørlegger,39,stk,20639.9,=18721*1.05*1.05,0.4,28895.9,30,990,29700,58595.9,1,,=B90*D90,1,58595.9,90,
+rorlegger,Rørlegger,39,"Kjerneborring, oppstart",enhetspris,stk,3500,=2500*1.4,,,,,,,,,,,,0,,=B91*D91,0,3500,91,
+rorlegger,Rørlegger,40,"Kjerneborring, per hull (ø50-250mm)",enhetspris,stk,1540,=1100*1.4,,,,,,,,,,,,0,,=B92*D92,0,1540,92,
+rorlegger,Rørlegger,41,ANNET - LEGG INN BESKRIVELSE,fritekst,stk,0,,,,,,,,,,,,,0,,=B93*D93,0,0,93,
+rorlegger,Rørlegger,42,ANNET - LEGG INN BESKRIVELSE,fritekst,stk,0,,,,,,,,,,,,,0,,=B94*D94,0,0,94,
+rorlegger,Rørlegger,43,Oppmøte rørlegger,oppmote,stk,450,,Rørlegger,40,stk,,,,0,,990,0,500,4,,=B95*D95,4,450,95,Pris i Regneark (450) avviker fra underark (500)
+rorlegger,Rørlegger,44,Timeforbruk Rørlegger,timer,stk,980,,Rørlegger,41,stk,,,,0,1,990,990,990,2,,=B96*D96,2,980,96,Pris i Regneark (980) avviker fra underark (990)
+murer,Murer/flislegger,1,Støp,enhetspris,m2,1782.21,"=VLOOKUP(A100,Murer!A:P,2,FALSE)",Murer,3,m2,753.008,=(6*103+40+25)*1.05*1.05,0.4,1054.21,0.8,910,728,1782.21,5,=B3,=B100*D100,6.6,1782.21,100,
+murer,Murer/flislegger,2,Komplett flisarbeid,enhetspris,m2,1132.2,"=VLOOKUP(A101,Murer!A:P,2,FALSE)",Murer,4,m2,93.7125,=((250/5)+(150/10)+20)*1.05*1.05,0.4,131.197,1.1,910,1001,1132.2,29,=B3+(B1*B2),=B101*D101,34.68,1132.2,101,
+murer,Murer/flislegger,3,Sokkel,enhetspris,lm,372.522,"=VLOOKUP(A102,Murer!A:P,2,FALSE)",Murer,5,lm,38.5875,=35*1.05*1.05,0.4,54.0225,0.35,910,318.5,372.522,10,=B1,=B102*D102,0,372.522,102,
+murer,Murer/flislegger,4,Utvendig hjørne,enhetspris,lm,1479.8,"=VLOOKUP(A103,Murer!A:P,2,FALSE)",Murer,6,lm,147,=140*1.05,0.4,205.8,1.4,910,1274,1479.8,2.4,,=B103*D103,2.4,1479.8,103,
+murer,Murer/flislegger,5,Tillegg for gjæring 45gr på utv hjørner,enhetspris,lm,802.2,"=VLOOKUP(A104,Murer!A:P,2,FALSE)",Murer,7,lm,53,,0.4,74.2,0.8,910,728,802.2,0,,=B104*D104,0,802.2,104,Navn har mellomrom på slutten (betydning for VLOOKUP)
+murer,Murer/flislegger,6,Flislagt foring,enhetspris,lm,1520.4,"=VLOOKUP(A105,Murer!A:P,2,FALSE)",Murer,8,lm,150,,0.4,210,1.44,910,1310.4,1520.4,0,,=B105*D105,0,1520.4,105,
+murer,Murer/flislegger,7,Flislagt toalettkasse,enhetspris,stk,4004,"=VLOOKUP(A106,Murer!A:P,2,FALSE)",Murer,9,stk,260,,0.4,364,4,910,3640,4004,1,,=B106*D106,1,4004,106,
+murer,Murer/flislegger,8,Flis,enhetspris,m2,400,"=VLOOKUP(A107,Murer!A:P,2,FALSE)",Murer,10,m2,285.714,=400/1.4,0.4,400,0,910,0,400,37.7,=D101*1.3,=B107*D107,45.084,400,107,
+murer,Murer/flislegger,9,Tillegg for storformatflis,enhetspris,m2,468.3,"=VLOOKUP(A108,Murer!A:P,2,FALSE)",Murer,11,m2,42,,0.4,58.8,0.45,910,409.5,468.3,0,,=B108*D108,0,468.3,108,
+murer,Murer/flislegger,10,Tillegg for småfliser,enhetspris,m2,1192.1,"=VLOOKUP(A109,Murer!A:P,2,FALSE)",Murer,12,m2,39,,0.4,54.6,1.25,910,1137.5,1192.1,0,,=B109*D109,0,1192.1,109,
+murer,Murer/flislegger,11,Materiell,enhetspris,stk,1000,"=VLOOKUP(A110,Murer!A:P,2,FALSE)",Murer,13,stk,714.286,=1000/1.4,0.4,1000,0,910,0,1000,4,,=B110*D110,4,1000,110,Underark henter feil mengde (8) i stedet for 4 (VLOOKUP på navn treffer første like navn i Regneark)
+murer,Murer/flislegger,12,Transport flis,enhetspris,stk,2730,"=VLOOKUP(A111,Murer!A:P,2,FALSE)",Murer,14,stk,0,,0.4,0,3,910,2730,2730,1,,=B111*D111,1,2730,111,
+murer,Murer/flislegger,13,"Gulvbelegg, oppstart",enhetspris,stk,3000,"=VLOOKUP(A112,Murer!A:P,2,FALSE)",Murer,15,stk,2142.86,=3000/1.4,0.4,3000,0,910,0,3000,0,,=B112*D112,0,3000,112,
+murer,Murer/flislegger,14,"Gulvbelegg, pris pr m2",enhetspris,m2,2500,"=VLOOKUP(A113,Murer!A:P,2,FALSE)",Murer,16,m2,1785.71,=2500/1.4,0.4,2500,0,910,0,2500,0,,=B113*D113,0,2500,113,
+murer,Murer/flislegger,15,ANNET - LEGG INN BESKRIVELSE,fritekst,stk,0,,,,,,,,,,,,,0,,=B114*D114,0,0,114,
+murer,Murer/flislegger,16,Oppmøte murer,oppmote,Km,450,,Murer,17,stk,,,0.4,0,0,910,0,450,5,,=B115*D115,5,450,115,Enhet avviker: Regneark 'Km' vs underark 'stk'
+murer,Murer/flislegger,17,Timeforbruk Murer,timer,Stk,870,,Murer,18,Stk,0,,0.4,0,1,910,910,910,8,,=B116*D116,8,870,116,Pris i Regneark (870) avviker fra underark (910)
+maler,Maler,1,"Malerarbeid og membran Aquapro, oppstart",enhetspris,stk,6916,"=VLOOKUP(A120,MALER!A:O,2,FALSE)",MALER,2,stk,,,0.4,0,7.6,910,6916,6916,0,,=B120*D120,0,6916,120,
+maler,Maler,2,"Malerarbeid og membran Aquapro, per m2",enhetspris,m2,1186.5,"=VLOOKUP(A121,MALER!A:O,2,FALSE)",MALER,3,m2,262.5,=(150+100)*1.05,0.4,367.5,0.9,910,819,1186.5,0,,=B121*D121,0,1186.5,121,
+maler,Maler,3,"Malerarbeid utv hjørner Aquapro, pr lm",enhetspris,lm,532,"=VLOOKUP(A122,MALER!A:O,2,FALSE)",MALER,4,lm,42,=40*1.05,0.4,58.8,0.52,910,473.2,532,0,,=B122*D122,0,532,122,
+maler,Maler,4,"Sparkling og maling, oppstart",enhetspris,stk,2730,"=VLOOKUP(A123,MALER!A:O,2,FALSE)",MALER,5,m2,0,,0.4,0,3,910,2730,2730,1,,=B123*D123,1,2730,123,Enhet avviker: Regneark 'stk' vs underark 'm2'
+maler,Maler,5,"Sparkling og maling, per m2",enhetspris,m2,901.6,"=VLOOKUP(A124,MALER!A:O,2,FALSE)",MALER,6,m2,189,=180*1.05,0.4,264.6,0.7,910,637,901.6,5,=D16+D17,=B124*D124,61,901.6,124,
+maler,Maler,6,ANNET - LEGG INN BESKRIVELSE,fritekst,stk,0,,,,,,,,,,,,,0,,=B125*D125,0,0,125,
+maler,Maler,7,Oppmøte maler,oppmote,Km,450,,MALER,7,stk,,,0.4,0,0,910,0,450,3,,=B126*D126,3,450,126,Enhet avviker: Regneark 'Km' vs underark 'stk'
+maler,Maler,8,Timeforbruk Maler diverse,timer,Stk,910,"=VLOOKUP(A127,MALER!A:O,2,FALSE)",MALER,8,Stk,,,0.4,0,1,910,910,910,0,,=B127*D127,0,910,127,
+annet,Annet/tillegg,1,Ekstra fortjeneste,enhetspris,RS,1000,,,,,,,,,,,,,10,,=B133*D133,10,1000,133,
+annet,Annet/tillegg,2,Prosjekt gjennom Byggstart (7%),prosent_tillegg,stk,0.07,,,,,,,,,,,,,0,,=D134*E130*B134*1.3,0,0.07,134,
+annet,Annet/tillegg,3,Prosjekt gjennom MittAnbud XL (5%),prosent_tillegg,stk,0.05,,,,,,,,,,,,,0,,=D135*E130*B135*1.3,0,0.05,135,

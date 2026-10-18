@@ -1,0 +1,32 @@
+{
+  "name": "@straume/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "generate": "prisma generate",
+    "migrate": "prisma migrate deploy",
+    "dev:migrate": "prisma migrate dev",
+    "seed": "tsx prisma/seed.ts",
+    "reset": "prisma migrate reset --force",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint prisma src"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "6.19.3",
+    "@straume/domain": "workspace:*",
+    "bcryptjs": "^2.4.3",
+    "prisma": "6.19.3",
+    "tsx": "^4.20.6"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "typescript": "^5.9.3"
+  }
+}

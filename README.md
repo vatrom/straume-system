@@ -83,7 +83,7 @@ Skisse er et polygon i meter. Vegger nummereres med klokka fra døra. Omkrets, g
 - Winner får e-post med PDF og PNG, ikke et eget tegneformat.
 - Sjekklisten følger tilbudet og regnearket: riving, tømrer, elektriker, rørlegger, murer/flis, maler. Arkitekturplanen nevnte rørlegger før elektriker. Administrator kan stokke seksjonene.
 - Etterfølgende mellomrom i pipelinenavnet «Salgspipe » er fjernet.
-- «Befaring avtalt» beholder 100 % sannsynlighet fra Pipedrive.
+- «Befaring avtalt» er satt til 40 % sannsynlighet etter avklaring med Vidar. Pipedrive hadde 100 %. Stagnasjon er fortsatt 14 dager.
 - Borettslag og sameier er tatt med som egen pipeline.
 - Selger og prosjektleder er to felt. Prosjektleder blir lik selger når avtalen vinnes.
 
@@ -110,7 +110,7 @@ Domene-testene dekker faser, prisversjon, geometri, synk og filtrering av intern
 Fra arkitekturplanen, som fortsatt bør avklares med Straume:
 
 - Hvor mange brukere og enheter, og om Android skal testes like grundig som iPhone og iPad.
-- Hvor mye Pipedrive-historikk som skal med, og om «Befaring avtalt» med 100 % sannsynlighet er bevisst.
+- Hvor mye Pipedrive-historikk som skal med.
 - Hvilket filformat Winner faktisk vil ha, og om e-post til tegner er nok.
 - Hvem som godkjenner tilbud og endringer før de går til kunde.
 - Norsk hosting, driftsansvar og e-signering (Signicat, Criipto eller Scrive).

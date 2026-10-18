@@ -6,7 +6,7 @@ import { createPhase, createStage, deletePhase, deleteStage, reorderStages, upda
 
 const base = [
   { id: "a", pipelineId: "p", name: "Innkommende", sortOrder: 0, probability: 30, rottenDays: 2 },
-  { id: "b", pipelineId: "p", name: "Befaring avtalt", sortOrder: 1, probability: 100, rottenDays: 14 },
+  { id: "b", pipelineId: "p", name: "Befaring avtalt", sortOrder: 1, probability: 40, rottenDays: 14 },
 ];
 
 describe("faser", () => {

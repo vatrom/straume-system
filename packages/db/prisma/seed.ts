@@ -128,6 +128,10 @@ const checklist: { tradeCode: string; name: string; items: { prompt: string; que
 async function main() {
   const done = await prisma.appSetting.findUnique({ where: { key: "seed_complete" } });
   if (done && process.env.SEED_FORCE !== "1") {
+    await prisma.stage.updateMany({
+      where: { id: STAGE.befaring },
+      data: { probability: 40, rottenDays: 14 },
+    });
     console.log("Seed finnes allerede. Hoppet over. Sett SEED_FORCE=1 for å kjøre på nytt (upsert).");
     return;
   }
@@ -202,7 +206,7 @@ async function main() {
   });
   const stages = [
     { id: STAGE.inn, pipelineId: PIPE.salg, name: "Innkommende henvendelse", sortOrder: 0, probability: 30, rottenDays: 2 },
-    { id: STAGE.befaring, pipelineId: PIPE.salg, name: "Befaring avtalt", sortOrder: 1, probability: 100, rottenDays: 14 },
+    { id: STAGE.befaring, pipelineId: PIPE.salg, name: "Befaring avtalt", sortOrder: 1, probability: 40, rottenDays: 14 },
     { id: STAGE.sendt, pipelineId: PIPE.salg, name: "Tilbud sendt", sortOrder: 2, probability: 35, rottenDays: 9 },
     { id: STAGE.oss, pipelineId: PIPE.salg, name: "Tilbud fulgt opp av oss", sortOrder: 3, probability: 35, rottenDays: 7 },
     { id: STAGE.kunde, pipelineId: PIPE.salg, name: "Tilbud fulgt opp av kunde", sortOrder: 4, probability: 50, rottenDays: 7 },

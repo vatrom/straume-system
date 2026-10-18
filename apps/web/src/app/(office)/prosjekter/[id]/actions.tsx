@@ -29,6 +29,7 @@ export function ProjectForm({
     phaseId: string;
     contractSumNok: number | null;
     plannedStartDate: string;
+    plannedEndDate: string;
     street: string;
     houseNumber: string;
     postalCode: string;
@@ -51,6 +52,7 @@ export function ProjectForm({
             phaseId: form.get("phaseId"),
             contractSumNok: contract === "" ? null : Number(contract),
             plannedStartDate: String(form.get("plannedStartDate") || "") || null,
+            plannedEndDate: String(form.get("plannedEndDate") || "") || null,
             street: form.get("street"),
             houseNumber: form.get("houseNumber"),
             postalCode: form.get("postalCode"),
@@ -111,6 +113,10 @@ export function ProjectForm({
         <label className="field">
           <span>Planlagt oppstart</span>
           <input name="plannedStartDate" type="date" defaultValue={initial.plannedStartDate} />
+        </label>
+        <label className="field">
+          <span>Planlagt ferdig</span>
+          <input name="plannedEndDate" type="date" defaultValue={initial.plannedEndDate} />
         </label>
         <label className="field grow">
           <span>Gate</span>
@@ -223,6 +229,30 @@ export function DocumentForm({ projectId }: { projectId: string }) {
       </button>
       {message ? <span>{message}</span> : null}
     </form>
+  );
+}
+
+export function CompleteButton({ projectId, status }: { projectId: string; status: string }) {
+  const [message, setMessage] = useState("");
+  const completed = status === "completed";
+  return (
+    <div className="stack">
+      <button
+        className={completed ? "btn" : "btn primary"}
+        type="button"
+        onClick={async () => {
+          try {
+            await send(`/api/projects/${projectId}`, "PATCH", { status: completed ? "open" : "completed" });
+            window.location.reload();
+          } catch (error) {
+            setMessage(error instanceof Error ? error.message : "Feil");
+          }
+        }}
+      >
+        {completed ? "Gjenåpne" : "Marker som fullført"}
+      </button>
+      {message ? <p className="muted">{message}</p> : null}
+    </div>
   );
 }
 

@@ -125,6 +125,82 @@ const checklist: { tradeCode: string; name: string; items: { prompt: string; que
   },
 ];
 
+async function ensureDealProjectSplit() {
+  const day = (iso: string) => new Date(`${iso}T12:00:00.000Z`);
+  await prisma.projectPhase.updateMany({
+    where: { id: PHASE.mottatt, rottenDays: null },
+    data: { rottenDays: 21 },
+  });
+  await prisma.project.updateMany({
+    where: { id: id(2, "60000000"), plannedEndDate: null },
+    data: { plannedEndDate: day("2026-10-01"), phaseEnteredAt: day("2026-09-01") },
+  });
+  const personId = id(7, "40000000");
+  await prisma.person.upsert({
+    where: { id: personId },
+    update: {},
+    create: {
+      id: personId,
+      firstName: "Sigrid",
+      lastName: "Solsiden",
+      email: "sigrid.solsiden@example.com",
+      phone: "40000007",
+      street: "Solsiden",
+      houseNumber: "5",
+      postalCode: "5353",
+      city: "Straume",
+      country: "Norge",
+      label: "Kunde",
+      ownerId: USERS.noah,
+    },
+  });
+  const dealId = id(10, "50000000");
+  await prisma.deal.upsert({
+    where: { id: dealId },
+    update: {},
+    create: {
+      id: dealId,
+      title: "Solsiden 5",
+      valueNok: 398000,
+      ownerId: USERS.noah,
+      personId,
+      pipelineId: PIPE.salg,
+      stageId: STAGE.slutt,
+      sourceChannel: "Har brukt oss før",
+      plannedStartDate: day("2025-03-04"),
+      stageEnteredAt: day("2025-01-15"),
+      status: "won",
+      wonAt: day("2025-02-20"),
+    },
+  });
+  await prisma.project.upsert({
+    where: { id: id(3, "60000000") },
+    update: {},
+    create: {
+      id: id(3, "60000000"),
+      title: "Solsiden 5",
+      dealId,
+      personId,
+      sellerId: USERS.noah,
+      projectManagerId: USERS.mia,
+      boardId: BOARD.rehab,
+      phaseId: PHASE.undersokelse,
+      status: "completed",
+      contractSumNok: 398000,
+      street: "Solsiden",
+      houseNumber: "5",
+      postalCode: "5353",
+      city: "Straume",
+      municipality: "Øygarden",
+      plannedStartDate: day("2025-03-04"),
+      plannedEndDate: day("2025-06-12"),
+      startDate: day("2025-03-10"),
+      endDate: day("2025-06-18"),
+      phaseEnteredAt: day("2025-06-18"),
+    },
+  });
+}
+
 async function main() {
   const done = await prisma.appSetting.findUnique({ where: { key: "seed_complete" } });
   if (done && process.env.SEED_FORCE !== "1") {
@@ -132,6 +208,7 @@ async function main() {
       where: { id: STAGE.befaring },
       data: { probability: 40, rottenDays: 14 },
     });
+    await ensureDealProjectSplit();
     console.log("Seed finnes allerede. Hoppet over. Sett SEED_FORCE=1 for å kjøre på nytt (upsert).");
     return;
   }
@@ -233,26 +310,26 @@ async function main() {
     create: { id: BOARD.rekl, name: "Reklamasjon/Service", sortOrder: 1 },
   });
   const phases = [
-    [PHASE.mottatt, BOARD.rehab, "Oppdrag mottatt", 0],
-    [id(2, "21000000"), BOARD.rehab, "Gjennomført tilvalgsmøte", 1],
-    [id(3, "21000000"), BOARD.rehab, "Endringsskjema sendt", 2],
-    [id(4, "21000000"), BOARD.rehab, "Fliser og vindu bestilt", 3],
-    [id(5, "21000000"), BOARD.rehab, "Alle varer bestilt", 4],
-    [PHASE.klar, BOARD.rehab, "Klar for gjennomføring", 5],
-    [id(7, "21000000"), BOARD.rehab, "Klart for dokumentasjon", 6],
-    [id(8, "21000000"), BOARD.rehab, "Send Kundeundersøkelse", 7],
-    [id(1, "22000000"), BOARD.rekl, "Innkommende henvendelse", 0],
-    [id(2, "22000000"), BOARD.rekl, "Venter tilbakemelding fra kunde", 1],
-    [id(3, "22000000"), BOARD.rekl, "Kunde venter på tilbakemelding", 2],
-    [id(4, "22000000"), BOARD.rekl, "Venter på leverandør", 3],
-    [id(5, "22000000"), BOARD.rekl, "Avtalt utbedringsdato", 4],
-    [id(6, "22000000"), BOARD.rekl, "Sak lukket", 5],
+    [PHASE.mottatt, BOARD.rehab, "Oppdrag mottatt", 0, 21],
+    [id(2, "21000000"), BOARD.rehab, "Gjennomført tilvalgsmøte", 1, null],
+    [id(3, "21000000"), BOARD.rehab, "Endringsskjema sendt", 2, null],
+    [id(4, "21000000"), BOARD.rehab, "Fliser og vindu bestilt", 3, null],
+    [id(5, "21000000"), BOARD.rehab, "Alle varer bestilt", 4, null],
+    [PHASE.klar, BOARD.rehab, "Klar for gjennomføring", 5, null],
+    [id(7, "21000000"), BOARD.rehab, "Klart for dokumentasjon", 6, null],
+    [id(8, "21000000"), BOARD.rehab, "Send Kundeundersøkelse", 7, null],
+    [id(1, "22000000"), BOARD.rekl, "Innkommende henvendelse", 0, null],
+    [id(2, "22000000"), BOARD.rekl, "Venter tilbakemelding fra kunde", 1, null],
+    [id(3, "22000000"), BOARD.rekl, "Kunde venter på tilbakemelding", 2, null],
+    [id(4, "22000000"), BOARD.rekl, "Venter på leverandør", 3, null],
+    [id(5, "22000000"), BOARD.rekl, "Avtalt utbedringsdato", 4, null],
+    [id(6, "22000000"), BOARD.rekl, "Sak lukket", 5, null],
   ] as const;
-  for (const [phaseId, boardId, name, sortOrder] of phases) {
+  for (const [phaseId, boardId, name, sortOrder, rottenDays] of phases) {
     await prisma.projectPhase.upsert({
       where: { id: phaseId },
       update: { name, sortOrder, boardId },
-      create: { id: phaseId, boardId, name, sortOrder },
+      create: { id: phaseId, boardId, name, sortOrder, rottenDays },
     });
   }
 
@@ -470,6 +547,8 @@ async function main() {
       street: "Havneveien",
       houseNumber: "15",
       plannedStartDate: day("2026-11-23"),
+      plannedEndDate: day("2026-10-01"),
+      phaseEnteredAt: day("2026-09-01"),
     },
   ];
   for (const project of projects) {
@@ -636,6 +715,8 @@ async function main() {
       create: { ...activity, ownerId: USERS.noah, internal: true },
     });
   }
+
+  await ensureDealProjectSplit();
 
   await prisma.appSetting.upsert({
     where: { key: "seed_complete" },

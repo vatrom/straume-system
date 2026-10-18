@@ -10,12 +10,15 @@ export default async function PipelinePage({ searchParams }: { searchParams: Pro
     <>
       <div className="top">
         <div>
-          <h1>Salgspipeline</h1>
-          <p className="muted">Dra avtaler mellom faser. Stagnerte avtaler er merket.</p>
+          <h1>Salgsavtaler</h1>
+          <p className="muted">Bare åpne salgsavtaler. Vunne og tapte forsvinner herfra og ligger i avtalelisten. Stagnerte avtaler er merket.</p>
         </div>
         <div className="row">
+          <Link className="btn" href="/avtaler/liste">
+            Avtaleliste
+          </Link>
           <Link className="btn" href="/pipeline/rediger">
-            Rediger pipeline
+            Rediger faser
           </Link>
           <Link className="btn primary" href={`/avtaler/ny?pipelineId=${current?.id ?? ""}`}>
             Ny avtale

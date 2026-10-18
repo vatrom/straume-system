@@ -3,37 +3,47 @@ import { dashboard } from "@/server/projects";
 import type { ProjectStatus } from "@straume/db";
 import Link from "next/link";
 
-const STATUSES: { value: ProjectStatus | ""; label: string }[] = [
-  { value: "", label: "Alle statuser" },
-  { value: "open", label: "Åpne" },
-  { value: "completed", label: "Ferdige" },
-  { value: "cancelled", label: "Kansellerte" },
+const STATUSES: { value: ProjectStatus | "" | "active"; label: string }[] = [
+  { value: "active", label: "Aktive" },
+  { value: "completed", label: "Fullførte" },
+  { value: "", label: "Alle" },
 ];
+
+const STATUS_LABEL: Record<string, string> = { open: "Åpen", completed: "Fullført", cancelled: "Kansellert" };
+
+function dato(iso: string | null) {
+  if (!iso) return "–";
+  const [year, month, day] = iso.split("-");
+  return `${day}.${month}.${year}`;
+}
 
 export default async function ProjectsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ sellerId?: string; projectManagerId?: string; phaseId?: string; boardId?: string; status?: string }>;
+  searchParams: Promise<{ sellerId?: string; projectManagerId?: string; phaseId?: string; boardId?: string; status?: string; q?: string; year?: string }>;
 }) {
   const query = await searchParams;
-  const status = (query.status ?? "") as ProjectStatus | "";
+  const status = (query.status ?? "active") as ProjectStatus | "" | "active";
   const data = await dashboard({
     sellerId: query.sellerId,
     projectManagerId: query.projectManagerId,
     phaseId: query.phaseId,
     boardId: query.boardId,
     status,
+    q: query.q,
+    year: query.year,
   });
+  const years = [2025, 2026, 2027];
   const phases = data.boards.flatMap((board) => board.phases.map((phase) => ({ ...phase, boardName: board.name })));
   return (
     <>
       <div className="top">
         <div>
-          <h1>Prosjekter</h1>
-          <p className="muted">Filtrer på selger, prosjektleder, fase og status.</p>
+          <h1>Prosjektliste</h1>
+          <p className="muted">Søk i aktive og fullførte prosjekter. Tavlen viser bare det som ikke er markert fullført.</p>
         </div>
         <Link className="btn" href="/prosjekter/tavle">
-          Åpne tavle
+          Til prosjekttavlen
         </Link>
       </div>
       <div className="kpis">
@@ -55,6 +65,15 @@ export default async function ProjectsPage({
         </div>
       </div>
       <form className="filters" method="get">
+        <input name="q" defaultValue={query.q ?? ""} placeholder="Søk prosjekt, adresse eller kunde" />
+        <select name="year" defaultValue={query.year ?? ""}>
+          <option value="">Alle år</option>
+          {years.map((year) => (
+            <option key={year} value={year}>
+              {year}
+            </option>
+          ))}
+        </select>
         <select name="sellerId" defaultValue={query.sellerId ?? ""}>
           <option value="">Alle selgere</option>
           {data.users.map((user) => (
@@ -104,7 +123,9 @@ export default async function ProjectsPage({
             <tr>
               <th>Prosjekt</th>
               <th>Kunde</th>
+              <th>Status</th>
               <th>Fase</th>
+              <th>Planlagt</th>
               <th>Selger</th>
               <th>Prosjektleder</th>
               <th>Kontrakt</th>
@@ -120,8 +141,25 @@ export default async function ProjectsPage({
                 </td>
                 <td>{project.personName ?? "–"}</td>
                 <td>
+                  {STATUS_LABEL[project.status] ?? project.status}
+                  {project.delayed ? (
+                    <div>
+                      <span className="badge rot">Forsinket</span>
+                    </div>
+                  ) : null}
+                  {project.stagnant ? (
+                    <div>
+                      <span className="badge warn">Stagnert</span>
+                    </div>
+                  ) : null}
+                </td>
+                <td>
                   {project.phaseName}
                   <div className="muted">{project.boardName}</div>
+                </td>
+                <td>
+                  {dato(project.plannedStartDate)}
+                  <div className="muted">Ferdig {dato(project.plannedEndDate)}</div>
                 </td>
                 <td>{project.sellerName}</td>
                 <td>{project.projectManagerName}</td>

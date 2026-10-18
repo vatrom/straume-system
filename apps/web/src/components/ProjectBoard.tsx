@@ -14,7 +14,17 @@ export type ProjectCard = {
   contractSumNok: number | null;
   address: string;
   personName: string | null;
+  plannedStartDate: string | null;
+  plannedEndDate: string | null;
+  delayed: boolean;
+  stagnant: boolean;
 };
+
+function dato(iso: string | null) {
+  if (!iso) return "–";
+  const [year, month, day] = iso.split("-");
+  return `${day}.${month}.${year}`;
+}
 
 export function ProjectBoard({ phases, initial }: { phases: { id: string; name: string; sortOrder: number }[]; initial: ProjectCard[] }) {
   const [projects, setProjects] = useState(initial);
@@ -56,6 +66,7 @@ export function ProjectBoard({ phases, initial }: { phases: { id: string; name: 
                 <h3>{phase.name}</h3>
                 <span className="badge">{cards.length}</span>
               </div>
+              <div className="col-sum">{nok(cards.reduce((sum, card) => sum + (card.contractSumNok ?? 0), 0))}</div>
               {cards.map((project) => (
                 <ProjectCardView key={project.id} project={project} />
               ))}
@@ -79,17 +90,29 @@ function PhaseColumn({ id, children }: { id: string; children: React.ReactNode }
 function ProjectCardView({ project }: { project: ProjectCard }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: project.id });
   const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`, opacity: isDragging ? 0.7 : 1 } : undefined;
+  const marked = project.delayed || project.stagnant;
   return (
-    <article ref={setNodeRef} className="deal" style={style} {...listeners} {...attributes}>
+    <article ref={setNodeRef} className={marked ? "deal rotten" : "deal"} style={style} {...listeners} {...attributes}>
       <Link href={`/prosjekter/${project.id}`}>{project.title}</Link>
       <div>{nok(project.contractSumNok)}</div>
       <div className="muted">
-        Selger {project.sellerName}
+        Prosjektleder {project.projectManagerName}
         <br />
-        PL {project.projectManagerName}
+        Selger {project.sellerName}
+      </div>
+      <div className="muted">
+        Oppstart {dato(project.plannedStartDate)}
+        <br />
+        Ferdig {dato(project.plannedEndDate)}
       </div>
       {project.personName ? <div className="muted">{project.personName}</div> : null}
       {project.address ? <div className="muted">{project.address}</div> : null}
+      {project.delayed || project.stagnant ? (
+        <div className="deal-flags">
+          {project.delayed ? <span className="badge rot">Forsinket</span> : null}
+          {project.stagnant ? <span className="badge warn">Stagnert</span> : null}
+        </div>
+      ) : null}
     </article>
   );
 }

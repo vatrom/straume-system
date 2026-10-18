@@ -5,9 +5,10 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
 const links: [string, string][] = [
-  ["/pipeline", "Salgspipeline"],
-  ["/prosjekter", "Prosjekter"],
+  ["/pipeline", "Salgsavtaler"],
+  ["/avtaler/liste", "Avtaleliste"],
   ["/prosjekter/tavle", "Prosjekttavle"],
+  ["/prosjekter", "Prosjektliste"],
   ["/personer", "Personer"],
   ["/organisasjoner", "Organisasjoner"],
   ["/prislister", "Prislister"],
@@ -58,6 +59,8 @@ export function Shell({ user, children }: { user: SessionUser; children: React.R
 }
 
 function navActive(path: string, href: string) {
+  if (href === "/pipeline") return path === "/pipeline" || (path.startsWith("/avtaler/") && !path.startsWith("/avtaler/liste") && path !== "/avtaler/ny");
+  if (href === "/avtaler/liste") return path.startsWith("/avtaler/liste") || path.startsWith("/avtaler/ny");
   if (href === "/prosjekter") return path === href || (path.startsWith("/prosjekter/") && !path.startsWith("/prosjekter/tavle"));
   return path === href || path.startsWith(`${href}/`);
 }

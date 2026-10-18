@@ -2,7 +2,7 @@ import { nok } from "@/lib/format";
 import { getDeal, listOptions } from "@/server/crm";
 import { dec, isoDate } from "@/server/dates";
 import Link from "next/link";
-import { DealActions } from "./actions";
+import { CreateProjectButton, DealActions } from "./actions";
 
 export default async function DealPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -18,6 +18,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
           <p>{nok(dec(deal.valueNok) ?? 0)} · {deal.owner.name} · {deal.stage.name}</p>
         </div>
         {deal.project ? <Link className="btn" href={`/prosjekter/${deal.project.id}`}>Åpne prosjekt</Link> : null}
+        {deal.status === "won" && !deal.project ? <CreateProjectButton id={deal.id} /> : null}
       </div>
       <div className="grid-2">
         <section className="card stack">

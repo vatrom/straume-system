@@ -1,8 +1,8 @@
 import { prisma } from "@straume/db";
 import { afterAll, describe, expect, it } from "vitest";
-import { addStage, createPipeline, editStage, orderStages, removePipeline, removeStage } from "./crm";
+import { addStage, createDeal, createPipeline, createProjectFromDeal, dealsForBoard, editStage, orderStages, removePipeline, removeStage, winDeal } from "./crm";
 import { adjustPriceList, priceListView } from "./price-admin";
-import { customerView } from "./projects";
+import { customerView, dashboard, moveProject, updateProject } from "./projects";
 import { pushMutations } from "./sync-service";
 
 const admin = { id: "00000000-0000-4000-8000-000000000001", role: "admin" };
@@ -10,12 +10,16 @@ const projectId = "60000000-0000-4000-8000-000000000001";
 
 describe("fase 1 mot databasen", () => {
   const created: string[] = [];
+  const extraProjects: string[] = [];
+  const extraDeals: string[] = [];
 
   afterAll(async () => {
     if (created.length) {
       await prisma.priceList.deleteMany({ where: { id: { in: created } } });
       await prisma.note.deleteMany({ where: { id: { in: created } } });
     }
+    if (extraProjects.length) await prisma.project.deleteMany({ where: { id: { in: extraProjects } } });
+    if (extraDeals.length) await prisma.deal.deleteMany({ where: { id: { in: extraDeals } } });
     await prisma.$disconnect();
   });
 
@@ -97,5 +101,52 @@ describe("fase 1 mot databasen", () => {
     expect(stale.results[0]?.ok).toBe(true);
     const stored = await prisma.note.findUnique({ where: { id: noteId } });
     expect(stored?.body).toBe("Synktest");
+  });
+
+  it("holder vunne og tapte avtaler ute av salgspipen", async () => {
+    const board = await dealsForBoard("10000000-0000-4000-8000-000000000001");
+    const titles = board.deals.map((deal) => deal.title);
+    expect(titles).toContain("Eksempelveien 12");
+    expect(titles).not.toContain("Lyngveien 3");
+    expect(titles).not.toContain("Fiktivveien 9");
+    expect(titles).not.toContain("Solsiden 5");
+    expect(board.deals.every((deal) => deal.status === "open")).toBe(true);
+  });
+
+  it("oppretter prosjekt bare etter bekreftelse, og bare ett per avtale", async () => {
+    const deal = await createDeal(admin, {
+      title: `Testavtale ${Date.now()}`,
+      valueNok: 120000,
+      pipelineId: "10000000-0000-4000-8000-000000000001",
+      stageId: "11000000-0000-4000-8000-000000000001",
+      personId: "40000000-0000-4000-8000-000000000001",
+      plannedStartDate: "2026-12-01",
+    });
+    extraDeals.push(deal.id);
+    const won = await winDeal(admin, deal.id);
+    expect(won.project).toBeNull();
+    expect(won.deal.status).toBe("won");
+    const project = await createProjectFromDeal(admin, deal.id);
+    extraProjects.push(project.id);
+    expect(project.title).toBe(deal.title);
+    expect(project.dealId).toBe(deal.id);
+    await expect(createProjectFromDeal(admin, deal.id)).rejects.toThrow(/allerede et prosjekt/);
+    await updateProject(admin, project.id, { status: "completed" });
+    await expect(moveProject(admin, project.id, "21000000-0000-4000-8000-000000000002")).rejects.toThrow(/Gjenåpne/);
+    const reopened = await updateProject(admin, project.id, { status: "open", phaseId: "21000000-0000-4000-8000-000000000002" });
+    expect(reopened.status).toBe("open");
+    expect(reopened.phaseId).toBe("21000000-0000-4000-8000-000000000002");
+  });
+
+  it("skjuler fullførte prosjekter fra tavlen og finner dem på år og status", async () => {
+    const boardId = "20000000-0000-4000-8000-000000000001";
+    const active = await dashboard({ status: "active", boardId });
+    expect(active.projects.map((project) => project.title)).not.toContain("Solsiden 5");
+    expect(active.projects.map((project) => project.title)).toContain("Havneveien 15");
+    const archive = await dashboard({ status: "completed", year: "2025", q: "Solsiden", sellerId: "00000000-0000-4000-8000-000000000002" });
+    expect(archive.projects.map((project) => project.title)).toEqual(["Solsiden 5"]);
+    const havn = active.projects.find((project) => project.title === "Havneveien 15");
+    expect(havn?.delayed).toBe(true);
+    expect(havn?.stagnant).toBe(true);
   });
 });

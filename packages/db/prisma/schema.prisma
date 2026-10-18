@@ -212,6 +212,11 @@ model Deal {
   wonAt               DateTime?
   lostAt              DateTime?
   project             Project?
+  documents           Document[]
+  inspections         Inspection[]
+  floors              Floor[]
+  media               Media[]
+  notes               Note[]
   activities          Activity[]
   createdAt           DateTime   @default(now())
   updatedAt           DateTime   @updatedAt
@@ -252,9 +257,10 @@ model ProjectPhase {
   id        String       @id @default(uuid())
   boardId   String
   board     ProjectBoard @relation(fields: [boardId], references: [id], onDelete: Cascade)
-  name      String
-  sortOrder Int
-  projects  Project[]
+  name       String
+  sortOrder  Int
+  rottenDays Int?
+  projects   Project[]
 
   @@index([boardId, sortOrder])
 }
@@ -286,6 +292,8 @@ model Project {
   startDate        DateTime?     @db.Date
   endDate          DateTime?     @db.Date
   plannedStartDate DateTime?     @db.Date
+  plannedEndDate   DateTime?     @db.Date
+  phaseEnteredAt   DateTime      @default(now())
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
   changes          ChangeOrder[]
@@ -318,8 +326,10 @@ model ChangeOrder {
 
 model Document {
   id           String             @id @default(uuid())
-  projectId    String
-  project      Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId    String?
+  project      Project?           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  dealId       String?
+  deal         Deal?              @relation(fields: [dealId], references: [id], onDelete: SetNull)
   name         String
   storageKey   String
   mimeType     String
@@ -328,12 +338,16 @@ model Document {
   uploadedById String
   uploadedBy   User               @relation(fields: [uploadedById], references: [id])
   createdAt    DateTime           @default(now())
+
+  @@index([dealId])
 }
 
 model Inspection {
   id                String                    @id
-  projectId         String
-  project           Project                   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId         String?
+  project           Project?                  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  dealId            String?
+  deal              Deal?                     @relation(fields: [dealId], references: [id], onDelete: SetNull)
   inspectorId       String?
   inspector         User?                     @relation(fields: [inspectorId], references: [id])
   templateVersionId String?
@@ -350,13 +364,16 @@ model Inspection {
   notes             Note[]
 
   @@index([projectId])
+  @@index([dealId])
   @@index([updatedAt])
 }
 
 model Floor {
   id             String      @id
-  projectId      String
-  project        Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId      String?
+  project        Project?    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  dealId         String?
+  deal           Deal?       @relation(fields: [dealId], references: [id], onDelete: SetNull)
   inspectionId   String?
   inspection     Inspection? @relation(fields: [inspectionId], references: [id])
   name           String
@@ -370,6 +387,7 @@ model Floor {
   notes          Note[]
 
   @@index([projectId])
+  @@index([dealId])
   @@index([updatedAt])
 }
 
@@ -415,8 +433,10 @@ model Wall {
 
 model Media {
   id             String            @id
-  projectId      String
-  project        Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId      String?
+  project        Project?          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  dealId         String?
+  deal           Deal?             @relation(fields: [dealId], references: [id], onDelete: SetNull)
   inspectionId   String?
   inspection     Inspection?       @relation(fields: [inspectionId], references: [id])
   floorId        String?
@@ -439,13 +459,16 @@ model Media {
   deletedAt      DateTime?
 
   @@index([projectId])
+  @@index([dealId])
   @@index([updatedAt])
 }
 
 model Note {
   id             String            @id
-  projectId      String
-  project        Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId      String?
+  project        Project?          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  dealId         String?
+  deal           Deal?             @relation(fields: [dealId], references: [id], onDelete: SetNull)
   inspectionId   String?
   inspection     Inspection?       @relation(fields: [inspectionId], references: [id])
   floorId        String?
@@ -465,6 +488,7 @@ model Note {
   deletedAt      DateTime?
 
   @@index([projectId])
+  @@index([dealId])
   @@index([updatedAt])
 }
 

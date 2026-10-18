@@ -1,5 +1,5 @@
 import { prisma, type ChangeOrderStatus, type DocumentVisibility, type ProjectStatus } from "@straume/db";
-import { createPhase, deletePhase, DomainError, projectForAudience, reorderPhases, updatePhase, type ProjectBundle } from "@straume/domain";
+import { assertRottenDays, createPhase, deletePhase, DomainError, isDealRotten, projectForAudience, reorderPhases, updatePhase, type ProjectBundle } from "@straume/domain";
 import { audit } from "./audit";
 import { address, asDate, dec, isoDate } from "./dates";
 import { assertAdmin } from "./roles";
@@ -16,27 +16,29 @@ export async function listBoards() {
   });
 }
 
-export async function addPhase(user: { id: string; role: string }, boardId: string, name: string) {
+export async function addPhase(user: { id: string; role: string }, boardId: string, name: string, rottenDays?: number | null) {
   assertAdmin(user);
+  if (rottenDays !== undefined) assertRottenDays(rottenDays);
   const existing = await prisma.projectPhase.findMany({ where: { boardId } });
   const id = crypto.randomUUID();
   const next = createPhase(existing, { id, boardId, name });
   const created = next.find((phase) => phase.id === id)!;
-  await prisma.projectPhase.create({ data: created });
+  await prisma.projectPhase.create({ data: { ...created, rottenDays: rottenDays ?? null } });
   await audit(user.id, "phase.create", "phase", id);
-  return created;
+  return { ...created, rottenDays: rottenDays ?? null };
 }
 
-export async function editPhase(user: { id: string; role: string }, id: string, name: string) {
+export async function editPhase(user: { id: string; role: string }, id: string, name: string, rottenDays?: number | null) {
   assertAdmin(user);
+  if (rottenDays !== undefined) assertRottenDays(rottenDays);
   const current = await prisma.projectPhase.findUnique({ where: { id } });
   if (!current) throw new DomainError("Fant ikke fasen");
   const existing = await prisma.projectPhase.findMany({ where: { boardId: current.boardId } });
   const next = updatePhase(existing, id, name);
   const updated = next.find((phase) => phase.id === id)!;
-  await prisma.projectPhase.update({ where: { id }, data: { name: updated.name } });
-  await audit(user.id, "phase.update", "phase", id, { name: updated.name });
-  return updated;
+  await prisma.projectPhase.update({ where: { id }, data: { name: updated.name, rottenDays: rottenDays === undefined ? undefined : rottenDays } });
+  await audit(user.id, "phase.update", "phase", id, { name: updated.name, rottenDays });
+  return { ...updated, rottenDays: rottenDays === undefined ? current.rottenDays : rottenDays };
 }
 
 export async function removePhase(user: { id: string; role: string }, id: string) {
@@ -67,14 +69,39 @@ export async function dashboard(filter: {
   projectManagerId?: string;
   phaseId?: string;
   boardId?: string;
-  status?: ProjectStatus | "";
+  status?: ProjectStatus | "" | "active";
+  q?: string;
+  year?: string;
 }) {
+  const q = filter.q?.trim();
+  const year = Number(filter.year);
+  const yearRange = Number.isInteger(year) && year > 1900 ? { gte: new Date(Date.UTC(year, 0, 1)), lt: new Date(Date.UTC(year + 1, 0, 1)) } : undefined;
   const where = {
     sellerId: filter.sellerId || undefined,
     projectManagerId: filter.projectManagerId || undefined,
     phaseId: filter.phaseId || undefined,
     boardId: filter.boardId || undefined,
-    status: filter.status || undefined,
+    status: filter.status === "active" ? { not: "completed" as const } : filter.status || undefined,
+    ...(q
+      ? {
+          OR: [
+            { title: { contains: q, mode: "insensitive" as const } },
+            { street: { contains: q, mode: "insensitive" as const } },
+            { city: { contains: q, mode: "insensitive" as const } },
+            { person: { is: { firstName: { contains: q, mode: "insensitive" as const } } } },
+            { person: { is: { lastName: { contains: q, mode: "insensitive" as const } } } },
+          ],
+        }
+      : {}),
+    ...(yearRange
+      ? {
+          AND: [
+            {
+              OR: [{ plannedStartDate: yearRange }, { plannedEndDate: yearRange }, { endDate: yearRange }, { createdAt: yearRange }],
+            },
+          ],
+        }
+      : {}),
   };
   const [projects, openDeals, users, boards] = await Promise.all([
     prisma.project.findMany({
@@ -109,6 +136,16 @@ export async function dashboard(filter: {
       approvedChangesNok: project.changes.filter((change) => change.status === "approved").reduce((sum, change) => sum + (dec(change.amountNok) ?? 0), 0),
       address: address(project),
       plannedStartDate: isoDate(project.plannedStartDate),
+      plannedEndDate: isoDate(project.plannedEndDate),
+      phaseEnteredAt: project.phaseEnteredAt.toISOString(),
+      rottenDays: project.phase.rottenDays,
+      delayed: Boolean(project.plannedEndDate && project.status !== "completed" && project.plannedEndDate.getTime() < Date.now()),
+      stagnant: isDealRotten({
+        status: project.status === "open" ? "open" : "won",
+        stageEnteredAt: project.phaseEnteredAt,
+        rottenDays: project.phase.rottenDays,
+        now: new Date(),
+      }),
       personName: project.person ? `${project.person.firstName} ${project.person.lastName}` : null,
     })),
     users,
@@ -126,7 +163,14 @@ export async function dashboard(filter: {
 export async function moveProject(user: { id: string; role: string }, id: string, phaseId: string) {
   const phase = await prisma.projectPhase.findUnique({ where: { id: phaseId } });
   if (!phase) throw new DomainError("Fant ikke fasen");
-  const project = await prisma.project.update({ where: { id }, data: { phaseId, boardId: phase.boardId } });
+  const current = await prisma.project.findUnique({ where: { id } });
+  if (!current) throw new DomainError("Fant ikke prosjektet");
+  if (current.phaseId === phaseId && current.boardId === phase.boardId) return current;
+  if (current.status === "completed") throw new DomainError("Fullførte prosjekter ligger ikke i tavlen. Gjenåpne prosjektet først.");
+  const project = await prisma.project.update({
+    where: { id },
+    data: { phaseId, boardId: phase.boardId, phaseEnteredAt: current.phaseId === phaseId ? undefined : new Date() },
+  });
   await audit(user.id, "project.phase", "project", id, { phaseId });
   return project;
 }
@@ -141,6 +185,7 @@ export async function updateProject(
     contractSumNok?: number | null;
     phaseId?: string;
     plannedStartDate?: string | null;
+    plannedEndDate?: string | null;
     startDate?: string | null;
     endDate?: string | null;
     street?: string | null;
@@ -149,6 +194,9 @@ export async function updateProject(
     city?: string | null;
   },
 ) {
+  if (input.status && input.status !== "completed") {
+    await prisma.project.update({ where: { id }, data: { status: input.status } });
+  }
   if (input.phaseId) await moveProject(user, id, input.phaseId);
   const project = await prisma.project.update({
     where: { id },
@@ -158,6 +206,7 @@ export async function updateProject(
       status: input.status,
       contractSumNok: input.contractSumNok === undefined ? undefined : input.contractSumNok,
       plannedStartDate: input.plannedStartDate === undefined ? undefined : asDate(input.plannedStartDate),
+      plannedEndDate: input.plannedEndDate === undefined ? undefined : asDate(input.plannedEndDate),
       startDate: input.startDate === undefined ? undefined : asDate(input.startDate),
       endDate: input.endDate === undefined ? undefined : asDate(input.endDate),
       street: input.street === undefined ? undefined : input.street,

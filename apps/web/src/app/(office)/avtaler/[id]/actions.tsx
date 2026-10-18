@@ -1,6 +1,33 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState } from "react";
+
+export function CreateProjectButton({ id }: { id: string }) {
+  const router = useRouter();
+  const [error, setError] = useState("");
+  return (
+    <div className="stack">
+      <button
+        className="btn primary"
+        type="button"
+        onClick={async () => {
+          const response = await fetch(`/api/deals/${id}/project`, { method: "POST" });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            setError(data.error ?? "Kunne ikke opprette prosjekt");
+            return;
+          }
+          router.push(`/prosjekter/${data.id}`);
+          router.refresh();
+        }}
+      >
+        Opprett prosjekt fra avtalen
+      </button>
+      {error ? <p className="error">{error}</p> : null}
+    </div>
+  );
+}
 
 export function DealActions({
   id,
@@ -15,7 +42,9 @@ export function DealActions({
   stageId: string;
   reasons: string[];
 }) {
+  const router = useRouter();
   const [error, setError] = useState("");
+  const [confirmWin, setConfirmWin] = useState(false);
   async function send(path: string, body?: unknown, method = "POST") {
     const response = await fetch(path, {
       method,
@@ -25,6 +54,11 @@ export function DealActions({
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
       setError(data.error ?? "Feil");
+      return;
+    }
+    if (data.project?.id) {
+      router.push(`/prosjekter/${data.project.id}`);
+      router.refresh();
       return;
     }
     window.location.reload();
@@ -78,10 +112,25 @@ export function DealActions({
       </form>
       {status === "open" ? (
         <div className="card stack">
-          <h2>Avslutt</h2>
-          <button className="btn primary" type="button" onClick={() => void send(`/api/deals/${id}/win`)}>
-            Merk som vunnet og opprett prosjekt
+          <h2>Avslutt salgsavtale</h2>
+          <p className="muted">Vunnet eller tapt avtale forsvinner fra salgspipen. Den kan søkes opp i avtalelisten.</p>
+          <button className="btn primary" type="button" onClick={() => setConfirmWin(true)}>
+            Merk som vunnet
           </button>
+          {confirmWin ? (
+            <div className="card stack" role="dialog" aria-labelledby="vinn-tittel">
+              <h3 id="vinn-tittel">Opprette prosjekt?</h3>
+              <p>Avtalen markeres som vunnet. Et prosjekt med samme navn kan opprettes nå. Kunde, kontraktssum, selger, befaring og dokumenter følger med. En avtale kan bare ha ett prosjekt.</p>
+              <div className="row">
+                <button className="btn" type="button" onClick={() => void send(`/api/deals/${id}/win`, { createProject: false })}>
+                  Bare marker som vunnet
+                </button>
+                <button className="btn primary" type="button" onClick={() => void send(`/api/deals/${id}/win`, { createProject: true })}>
+                  Marker som vunnet og opprett prosjekt
+                </button>
+              </div>
+            </div>
+          ) : null}
           <form
             className="stack"
             onSubmit={(event) => {

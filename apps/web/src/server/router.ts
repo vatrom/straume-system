@@ -2,7 +2,7 @@ import bcrypt from "bcryptjs";
 import { prisma, type ActivityType, type ChangeOrderStatus, type DocumentVisibility, type PriceItemType, type ProjectStatus, type Role } from "@straume/db";
 import { DomainError } from "@straume/domain";
 import { clearSessionCookie, setSessionCookie, signSession, withUser, type SessionUser } from "./auth";
-import { addActivity, addOption, addStage, createDeal, createPipeline, dealsForBoard, editOption, editStage, getDeal, listOptions, listOrganizations, listPeople, listPipelines, loseDeal, orderStages, removeOption, removePipeline, removeStage, saveOrganization, savePerson, staff, toggleActivity, updateDeal, updatePipeline, winDeal } from "./crm";
+import { addActivity, addOption, addStage, createDeal, createPipeline, createProjectFromDeal, dealsForBoard, editOption, editStage, getDeal, listOptions, listOrganizations, listPeople, listPipelines, loseDeal, orderStages, removeOption, removePipeline, removeStage, saveOrganization, savePerson, staff, toggleActivity, updateDeal, updatePipeline, winDeal } from "./crm";
 import { checklistEditor, publishChecklist, saveDraft, type DraftSection } from "./checklists";
 import { HttpError, json, jsonError, readJson } from "./http";
 import { activateList, addItem, adjustPriceList, editLine, listPriceLists, priceListView } from "./price-admin";
@@ -89,7 +89,11 @@ async function dispatch(req: Request, slug: string[], user: SessionUser): Promis
   if (a === "deals" && !b && method === "POST") return json(await createDeal(user, await readJson(req)), 201, req);
   if (a === "deals" && b && !c && method === "GET") return json(await getDeal(b), 200, req);
   if (a === "deals" && b && !c && method === "PATCH") return json(await updateDeal(user, b, await readJson(req)), 200, req);
-  if (a === "deals" && b && c === "win" && method === "POST") return json(await winDeal(user, b), 200, req);
+  if (a === "deals" && b && c === "win" && method === "POST") {
+    const body = await readJson<{ createProject?: boolean }>(req);
+    return json(await winDeal(user, b, { createProject: Boolean(body.createProject) }), 200, req);
+  }
+  if (a === "deals" && b && c === "project" && method === "POST") return json(await createProjectFromDeal(user, b), 201, req);
   if (a === "deals" && b && c === "lose" && method === "POST") {
     const body = await readJson<{ lostReason: string; lostComment?: string }>(req);
     return json(await loseDeal(user, b, body.lostReason, body.lostComment), 200, req);
@@ -126,16 +130,16 @@ async function dispatch(req: Request, slug: string[], user: SessionUser): Promis
   if (a === "staff" && method === "GET") return json(await staff(), 200, req);
   if (a === "boards" && !b && method === "GET") return json(await listBoards(), 200, req);
   if (a === "boards" && b && c === "phases" && method === "POST") {
-    const body = await readJson<{ name: string }>(req);
-    return json(await addPhase(user, b, body.name), 201, req);
+    const body = await readJson<{ name: string; rottenDays?: number | null }>(req);
+    return json(await addPhase(user, b, body.name, body.rottenDays), 201, req);
   }
   if (a === "boards" && b && c === "reorder" && method === "POST") {
     const body = await readJson<{ ids: string[] }>(req);
     return json(await orderPhases(user, b, body.ids), 200, req);
   }
   if (a === "phases" && b && method === "PATCH") {
-    const body = await readJson<{ name: string }>(req);
-    return json(await editPhase(user, b, body.name), 200, req);
+    const body = await readJson<{ name: string; rottenDays?: number | null }>(req);
+    return json(await editPhase(user, b, body.name, body.rottenDays), 200, req);
   }
   if (a === "phases" && b && method === "DELETE") {
     await removePhase(user, b);
@@ -143,13 +147,15 @@ async function dispatch(req: Request, slug: string[], user: SessionUser): Promis
   }
   if (a === "projects" && !b && method === "GET") {
     const url = new URL(req.url);
-    const status = url.searchParams.get("status") as ProjectStatus | "" | null;
+    const status = (url.searchParams.get("status") ?? "") as ProjectStatus | "" | "active";
     return json(await dashboard({
       sellerId: url.searchParams.get("sellerId") ?? undefined,
       projectManagerId: url.searchParams.get("projectManagerId") ?? undefined,
       phaseId: url.searchParams.get("phaseId") ?? undefined,
       boardId: url.searchParams.get("boardId") ?? undefined,
-      status: status ?? "",
+      status,
+      q: url.searchParams.get("q") ?? undefined,
+      year: url.searchParams.get("year") ?? undefined,
     }), 200, req);
   }
   if (a === "projects" && b && c === "rooms" && d && slug[4]?.startsWith("sketch.") && method === "GET") {

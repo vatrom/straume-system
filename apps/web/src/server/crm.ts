@@ -9,6 +9,7 @@ import {
   reorderStages,
   updateStage,
 } from "@straume/domain";
+import type { DealStatus } from "@straume/db";
 import { audit } from "./audit";
 import { asDate, dec, isoDate } from "./dates";
 import { HttpError } from "./http";
@@ -326,11 +327,22 @@ export async function updateDeal(user: { id: string; role: string }, id: string,
   return updated;
 }
 
-export async function winDeal(user: { id: string; role: string }, id: string) {
-  const deal = await prisma.deal.findUnique({ where: { id }, include: { person: true, project: true } });
+export async function winDeal(user: { id: string; role: string }, id: string, options?: { createProject?: boolean }) {
+  const deal = await prisma.deal.findUnique({ where: { id }, include: { project: true } });
   if (!deal) throw new DomainError("Fant ikke salgsavtalen");
   if (deal.status !== "open") throw new DomainError("Avtalen er allerede lukket");
   if (deal.project) throw new DomainError("Avtalen har allerede et prosjekt");
+  const won = await prisma.deal.update({ where: { id }, data: { status: "won", wonAt: new Date() } });
+  await audit(user.id, "deal.win", "deal", id);
+  const project = options?.createProject ? await createProjectFromDeal(user, id) : null;
+  return { deal: won, project };
+}
+
+export async function createProjectFromDeal(user: { id: string; role: string }, dealId: string) {
+  const deal = await prisma.deal.findUnique({ where: { id: dealId }, include: { person: true, project: true } });
+  if (!deal) throw new DomainError("Fant ikke salgsavtalen");
+  if (deal.status !== "won") throw new DomainError("Bare en vunnet salgsavtale kan bli et prosjekt");
+  if (deal.project) throw new DomainError("Salgsavtalen har allerede et prosjekt");
   const board = await prisma.projectBoard.findFirst({
     where: { name: "Rehabiliteringsprosjekter" },
     include: { phases: { orderBy: { sortOrder: "asc" } } },
@@ -338,8 +350,7 @@ export async function winDeal(user: { id: string; role: string }, id: string) {
   const phase = board?.phases[0];
   if (!board || !phase) throw new DomainError("Fant ikke prosjekttavlen Rehabiliteringsprosjekter");
   const project = await prisma.$transaction(async (tx) => {
-    await tx.deal.update({ where: { id }, data: { status: "won", wonAt: new Date() } });
-    return tx.project.create({
+    const created = await tx.project.create({
       data: {
         title: deal.title,
         dealId: deal.id,
@@ -356,11 +367,54 @@ export async function winDeal(user: { id: string; role: string }, id: string) {
         municipality: deal.person?.municipality,
         contractSumNok: deal.valueNok,
         plannedStartDate: deal.plannedStartDate,
+        phaseEnteredAt: new Date(),
       },
     });
+    const link = { projectId: created.id };
+    await tx.document.updateMany({ where: { dealId: deal.id, projectId: null }, data: link });
+    await tx.inspection.updateMany({ where: { dealId: deal.id, projectId: null }, data: link });
+    await tx.floor.updateMany({ where: { dealId: deal.id, projectId: null }, data: link });
+    await tx.media.updateMany({ where: { dealId: deal.id, projectId: null }, data: link });
+    await tx.note.updateMany({ where: { dealId: deal.id, projectId: null }, data: link });
+    return created;
   });
-  await audit(user.id, "deal.win", "project", project.id, { dealId: id });
+  await audit(user.id, "project.create", "project", project.id, { dealId });
   return project;
+}
+
+export async function listDeals(filter: { pipelineId?: string; ownerId?: string; status?: DealStatus | "" | "all"; q?: string }) {
+  const q = filter.q?.trim();
+  const status = !filter.status || filter.status === "all" ? undefined : filter.status;
+  const deals = await prisma.deal.findMany({
+    where: {
+      pipelineId: filter.pipelineId || undefined,
+      ownerId: filter.ownerId || undefined,
+      status,
+      ...(q
+        ? {
+            OR: [
+              { title: { contains: q, mode: "insensitive" } },
+              { person: { is: { firstName: { contains: q, mode: "insensitive" } } } },
+              { person: { is: { lastName: { contains: q, mode: "insensitive" } } } },
+              { organization: { is: { name: { contains: q, mode: "insensitive" } } } },
+            ],
+          }
+        : {}),
+    },
+    include: { owner: true, person: true, organization: true, stage: true, pipeline: true, project: true },
+    orderBy: { updatedAt: "desc" },
+  });
+  return {
+    pipelines: await listPipelines(),
+    users: await staff(),
+    deals: deals.map((deal) => ({
+      ...toCard(deal, new Date()),
+      pipelineName: deal.pipeline.name,
+      organizationName: deal.organization?.name ?? null,
+      projectId: deal.project?.id ?? null,
+      lostReason: deal.lostReason,
+    })),
+  };
 }
 
 export async function loseDeal(user: { id: string; role: string }, id: string, lostReason: string, lostComment?: string) {

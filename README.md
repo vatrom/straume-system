@@ -68,7 +68,13 @@ packages/db     Prisma-skjema, migrering og seed
 
 PostgreSQL er kilden på serveren. Ansatte logger inn med e-post og passord. Nettleseren får en httpOnly-cookie, appen får samme JWT som Bearer-token. Rollene er `admin`, `selger`, `prosjektleder` og `kontor`. Alle ansatte ser alle avtaler og prosjekter, slik som i dagens Pipedrive-oppsett. Bare administrator endrer pipelines, faser, valglister, prislister, sjekklister, brukere og Winner-mottaker.
 
-En vunnet avtale oppretter et prosjekt på første fase i Rehabiliteringsprosjekter. Selger blir avtalens eier. Prosjektleder settes lik selger og kan byttes. Kontraktsum og adresse kopieres.
+Salgsavtaler og prosjekter er to egne ting, med hvert sitt menypunkt. Salgspipen viser bare åpne avtaler. En vunnet eller tapt avtale forsvinner fra pipen og kan søkes opp i avtalelisten, med filter på status, selger og pipeline.
+
+Når en avtale markeres vunnet, spør kontoret om det skal opprettes et prosjekt med samme navn. Ingenting opprettes uten det svaret. En avtale kan ha ett prosjekt. Kunde, kontraktssum, selger, planlagt oppstart, befaring og dokumenter følger med til første fase i Rehabiliteringsprosjekter. Prosjektleder settes lik selger og kan byttes. Lenken går begge veier.
+
+Prosjekttavlen viser prosjekter som ikke er markert fullført. Hver fase viser antall og kontraktsum. Kortet viser prosjektleder, planlagt oppstart og planlagt ferdig. Forsinkede og stagnerte prosjekter er merket. Filter på selger og prosjektleder står igjen. «Marker som fullført» tar prosjektet ut av tavlen. «Gjenåpne» legger det tilbake. Fullførte prosjekter søkes opp i prosjektlisten, med filter på status, selger, prosjektleder og år.
+
+Administrator kan fortsatt endre fasene i begge piper, inkludert sannsynlighet og stagnasjonsdager i salg, og stagnasjonsdager på prosjektfasene.
 
 Befaring synkes med siste-endring-per-felt. Konflikter logges. Bilder og notater er bare-legg-til: en sletting fra enheten blir avvist. Interne notater, intern media og interne svarnotater fjernes i `projectForAudience` før kundeutsikt og før e-post til tegner.
 
@@ -85,7 +91,8 @@ Skisse er et polygon i meter. Vegger nummereres med klokka fra døra. Omkrets, g
 - Etterfølgende mellomrom i pipelinenavnet «Salgspipe » er fjernet.
 - «Befaring avtalt» er satt til 40 % sannsynlighet etter avklaring med Vidar. Pipedrive hadde 100 %. Stagnasjon er fortsatt 14 dager.
 - Borettslag og sameier er tatt med som egen pipeline.
-- Selger og prosjektleder er to felt. Prosjektleder blir lik selger når avtalen vinnes.
+- Selger og prosjektleder er to felt. Prosjektleder blir lik selger når et prosjekt opprettes fra en vunnet avtale, og kan byttes etterpå.
+- Et prosjekt opprettes ikke automatisk når avtalen vinnes. Kontoret bekrefter det i en dialog.
 
 ## Tester
 
@@ -95,7 +102,7 @@ pnpm typecheck
 pnpm lint
 ```
 
-Domene-testene dekker faser, prisversjon, geometri, synk og filtrering av interne notater. Web-testene kjører det samme mot Postgres: fase-redigering, prisversjon, kundeutsikt og synk.
+Domene-testene dekker faser, prisversjon, geometri, synk og filtrering av interne notater. Web-testene kjører det samme mot Postgres: fase-redigering, prisversjon, kundeutsikt, synk, at vunnet avtale ikke lager prosjekt av seg selv, og at fullførte prosjekter ligger i søket og ikke i tavlen.
 
 ## Det som er bevisst utsatt
 

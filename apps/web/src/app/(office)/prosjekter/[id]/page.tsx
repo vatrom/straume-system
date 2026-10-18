@@ -1,4 +1,4 @@
-import { CustomerPreview, ChangeForm, DocumentForm, ProjectForm, WinnerButton } from "./actions";
+import { CompleteButton, CustomerPreview, ChangeForm, DocumentForm, ProjectForm, WinnerButton } from "./actions";
 import { nok } from "@/lib/format";
 import { staff } from "@/server/crm";
 import { dec, isoDate } from "@/server/dates";
@@ -36,7 +36,8 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
           </p>
         </div>
         <div className="row">
-          {project.deal ? <Link className="btn" href={`/avtaler/${project.deal.id}`}>Avtale</Link> : null}
+          {project.deal ? <Link className="btn" href={`/avtaler/${project.deal.id}`}>Salgsavtale</Link> : null}
+          <CompleteButton projectId={project.id} status={project.status} />
           <WinnerButton projectId={project.id} />
         </div>
       </div>
@@ -72,6 +73,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
               phaseId: project.phaseId,
               contractSumNok: dec(project.contractSumNok),
               plannedStartDate: isoDate(project.plannedStartDate) ?? "",
+              plannedEndDate: isoDate(project.plannedEndDate) ?? "",
               street: project.street ?? "",
               houseNumber: project.houseNumber ?? "",
               postalCode: project.postalCode ?? "",

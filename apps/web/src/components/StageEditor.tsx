@@ -9,11 +9,13 @@ export function StageEditor({
   apiBase,
   initial,
   withProbability,
+  withRotting = false,
 }: {
   title: string;
   apiBase: string;
   initial: Stage[];
   withProbability: boolean;
+  withRotting?: boolean;
 }) {
   const [rows, setRows] = useState(initial);
   const [message, setMessage] = useState("");
@@ -65,10 +67,11 @@ export function StageEditor({
               const form = new FormData(event.currentTarget);
               try {
                 const rotten = String(form.get("rottenDays") ?? "");
+                const trackRotting = withProbability || withRotting;
                 await call(`/api/${withProbability ? "stages" : "phases"}/${row.id}`, "PATCH", {
                   name: form.get("name"),
                   probability: withProbability ? Number(form.get("probability")) : undefined,
-                  rottenDays: withProbability ? (rotten === "" ? null : Number(rotten)) : undefined,
+                  rottenDays: trackRotting ? (rotten === "" ? null : Number(rotten)) : undefined,
                 });
                 setMessage("Lagret");
               } catch (error) {
@@ -78,8 +81,8 @@ export function StageEditor({
           >
             <input name="name" defaultValue={row.name} />
             {withProbability ? <input name="probability" type="number" min={0} max={100} defaultValue={row.probability ?? 0} style={{ width: 80 }} /> : null}
-            {withProbability ? (
-              <input name="rottenDays" type="number" min={1} placeholder="dager" defaultValue={row.rottenDays ?? ""} style={{ width: 90 }} />
+            {withProbability || withRotting ? (
+              <input name="rottenDays" type="number" min={1} placeholder="stagnasjonsdager" defaultValue={row.rottenDays ?? ""} style={{ width: 90 }} />
             ) : null}
             <button className="btn" type="submit">
               Lagre
@@ -130,7 +133,7 @@ export function StageEditor({
       >
         <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Ny fase" required />
         {withProbability ? <input type="number" value={probability} onChange={(event) => setProbability(Number(event.target.value))} /> : null}
-        {withProbability ? <input value={rottenDays} onChange={(event) => setRottenDays(event.target.value)} placeholder="stagnasjonsdager" /> : null}
+        {withProbability || withRotting ? <input value={rottenDays} onChange={(event) => setRottenDays(event.target.value)} placeholder="stagnasjonsdager" /> : null}
         <button className="btn primary" type="submit">
           Legg til fase
         </button>

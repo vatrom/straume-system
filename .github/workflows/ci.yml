@@ -1,0 +1,43 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: straume
+          POSTGRES_PASSWORD: straume
+          POSTGRES_DB: straume
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U straume -d straume"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://straume:straume@localhost:5432/straume
+      AUTH_SECRET: dev-only-not-a-secret-change-in-prod-32b
+      SEED_PASSWORD: bytt-meg-lokalt
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @straume/db generate
+      - run: pnpm --filter @straume/db migrate
+      - run: pnpm --filter @straume/db seed
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm lint

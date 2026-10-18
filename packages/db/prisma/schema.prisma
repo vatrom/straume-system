@@ -1,0 +1,686 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  admin
+  selger
+  prosjektleder
+  kontor
+}
+
+enum DealStatus {
+  open
+  won
+  lost
+}
+
+enum ProjectStatus {
+  open
+  completed
+  cancelled
+}
+
+enum ChangeOrderStatus {
+  draft
+  sent
+  approved
+  rejected
+}
+
+enum DocumentVisibility {
+  internal
+  customer
+  craftsman
+}
+
+enum MediaKind {
+  photo
+  video
+  voice
+  text
+}
+
+enum QuestionType {
+  yes_no
+  number
+  measurement
+  choice
+  text
+}
+
+enum PriceListStatus {
+  draft
+  active
+  archived
+}
+
+enum PriceItemType {
+  unit_price
+  hours
+  callout
+  package
+  freetext
+  percent_addon
+}
+
+enum ActivityType {
+  call
+  meeting
+  task
+  deadline
+  email
+  lunch
+}
+
+enum QuoteStatus {
+  draft
+  internally_approved
+  sent
+  signed
+  rejected
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         Role
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  ownedDeals      Deal[]         @relation("DealOwner")
+  ownedOrgs       Organization[] @relation("OrgOwner")
+  ownedPeople     Person[]       @relation("PersonOwner")
+  sellerProjects  Project[]      @relation("Seller")
+  managedProjects Project[]      @relation("ProjectManager")
+  activities      Activity[]
+  documents       Document[]
+  auditLogs       AuditLog[]
+  inspections     Inspection[]
+}
+
+model OptionList {
+  id    String       @id
+  key   String       @unique
+  name  String
+  items OptionItem[]
+}
+
+model OptionItem {
+  id        String     @id @default(uuid())
+  listId    String
+  list      OptionList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  label     String
+  sortOrder Int
+  active    Boolean    @default(true)
+
+  @@unique([listId, label])
+  @@index([listId, sortOrder])
+}
+
+model Pipeline {
+  id                     String  @id @default(uuid())
+  name                   String
+  sortOrder              Int
+  dealProbabilityEnabled Boolean @default(false)
+  stages                 Stage[]
+  deals                  Deal[]
+}
+
+model Stage {
+  id          String   @id @default(uuid())
+  pipelineId  String
+  pipeline    Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  name        String
+  sortOrder   Int
+  probability Int
+  rottenDays  Int?
+  deals       Deal[]
+
+  @@index([pipelineId, sortOrder])
+}
+
+model Organization {
+  id        String    @id @default(uuid())
+  name      String
+  orgNumber String?
+  address   String?
+  ownerId   String?
+  owner     User?     @relation("OrgOwner", fields: [ownerId], references: [id])
+  label     String?
+  people    Person[]
+  deals     Deal[]
+  projects  Project[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Person {
+  id             String        @id @default(uuid())
+  firstName      String
+  lastName       String
+  email          String?
+  phone          String?
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  ownerId        String?
+  owner          User?         @relation("PersonOwner", fields: [ownerId], references: [id])
+  label          String?
+  street         String?
+  houseNumber    String?
+  postalCode     String?
+  city           String?
+  municipality   String?
+  country        String?       @default("Norge")
+  deals          Deal[]
+  projects       Project[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+}
+
+model Deal {
+  id                  String     @id @default(uuid())
+  title               String
+  valueNok            Decimal    @default(0) @db.Decimal(12, 2)
+  ownerId             String
+  owner               User       @relation("DealOwner", fields: [ownerId], references: [id])
+  personId            String?
+  person              Person?    @relation(fields: [personId], references: [id])
+  organizationId      String?
+  organization        Organization? @relation(fields: [organizationId], references: [id])
+  pipelineId          String
+  pipeline            Pipeline   @relation(fields: [pipelineId], references: [id])
+  stageId             String
+  stage               Stage      @relation(fields: [stageId], references: [id])
+  status              DealStatus @default(open)
+  sourceChannel       String?
+  expectedCloseDate   DateTime?  @db.Date
+  plannedStartDate    DateTime?  @db.Date
+  lostReason          String?
+  lostComment         String?
+  probabilityOverride Int?
+  label               String?
+  stageEnteredAt      DateTime   @default(now())
+  wonAt               DateTime?
+  lostAt              DateTime?
+  project             Project?
+  activities          Activity[]
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+
+  @@index([pipelineId, status])
+  @@index([stageId])
+  @@index([ownerId])
+}
+
+model Activity {
+  id        String       @id @default(uuid())
+  dealId    String?
+  deal      Deal?        @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  projectId String?
+  project   Project?     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  type      ActivityType
+  subject   String
+  note      String?
+  dueAt     DateTime?
+  done      Boolean      @default(false)
+  doneAt    DateTime?
+  ownerId   String
+  owner     User         @relation(fields: [ownerId], references: [id])
+  internal  Boolean      @default(true)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+}
+
+model ProjectBoard {
+  id        String         @id @default(uuid())
+  name      String
+  sortOrder Int
+  phases    ProjectPhase[]
+  projects  Project[]
+}
+
+model ProjectPhase {
+  id        String       @id @default(uuid())
+  boardId   String
+  board     ProjectBoard @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  name      String
+  sortOrder Int
+  projects  Project[]
+
+  @@index([boardId, sortOrder])
+}
+
+model Project {
+  id               String        @id @default(uuid())
+  title            String
+  dealId           String?       @unique
+  deal             Deal?         @relation(fields: [dealId], references: [id])
+  personId         String?
+  person           Person?       @relation(fields: [personId], references: [id])
+  organizationId   String?
+  organization     Organization? @relation(fields: [organizationId], references: [id])
+  boardId          String
+  board            ProjectBoard  @relation(fields: [boardId], references: [id])
+  phaseId          String
+  phase            ProjectPhase  @relation(fields: [phaseId], references: [id])
+  status           ProjectStatus @default(open)
+  sellerId         String
+  seller           User          @relation("Seller", fields: [sellerId], references: [id])
+  projectManagerId String
+  projectManager   User          @relation("ProjectManager", fields: [projectManagerId], references: [id])
+  street           String?
+  houseNumber      String?
+  postalCode       String?
+  city             String?
+  municipality     String?
+  contractSumNok   Decimal?      @db.Decimal(12, 2)
+  startDate        DateTime?     @db.Date
+  endDate          DateTime?     @db.Date
+  plannedStartDate DateTime?     @db.Date
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  changes          ChangeOrder[]
+  documents        Document[]
+  inspections      Inspection[]
+  floors           Floor[]
+  media            Media[]
+  notes            Note[]
+  activities       Activity[]
+  quotes           Quote[]
+
+  @@index([sellerId])
+  @@index([projectManagerId])
+  @@index([phaseId])
+  @@index([status])
+}
+
+model ChangeOrder {
+  id           String            @id @default(uuid())
+  projectId    String
+  project      Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title        String
+  description  String?
+  amountNok    Decimal?          @db.Decimal(12, 2)
+  status       ChangeOrderStatus @default(draft)
+  internalNote String?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+}
+
+model Document {
+  id           String             @id @default(uuid())
+  projectId    String
+  project      Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name         String
+  storageKey   String
+  mimeType     String
+  sizeBytes    Int
+  visibility   DocumentVisibility @default(internal)
+  uploadedById String
+  uploadedBy   User               @relation(fields: [uploadedById], references: [id])
+  createdAt    DateTime           @default(now())
+}
+
+model Inspection {
+  id                String                    @id
+  projectId         String
+  project           Project                   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  inspectorId       String?
+  inspector         User?                     @relation(fields: [inspectorId], references: [id])
+  templateVersionId String?
+  templateVersion   ChecklistTemplateVersion? @relation(fields: [templateVersionId], references: [id])
+  status            String                    @default("draft")
+  visitedAt         DateTime?
+  fieldUpdatedAt    Json                      @default("{}")
+  updatedAt         DateTime
+  createdAt         DateTime                  @default(now())
+  deletedAt         DateTime?
+  floors            Floor[]
+  answers           ChecklistAnswer[]
+  media             Media[]
+  notes             Note[]
+
+  @@index([projectId])
+  @@index([updatedAt])
+}
+
+model Floor {
+  id             String      @id
+  projectId      String
+  project        Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  inspectionId   String?
+  inspection     Inspection? @relation(fields: [inspectionId], references: [id])
+  name           String
+  sortOrder      Int
+  fieldUpdatedAt Json        @default("{}")
+  updatedAt      DateTime
+  createdAt      DateTime    @default(now())
+  deletedAt      DateTime?
+  rooms          Room[]
+  media          Media[]
+  notes          Note[]
+
+  @@index([projectId])
+  @@index([updatedAt])
+}
+
+model Room {
+  id                String    @id
+  floorId           String
+  floor             Floor     @relation(fields: [floorId], references: [id], onDelete: Cascade)
+  name              String
+  sortOrder         Int
+  perimeterM        Decimal?  @db.Decimal(10, 3)
+  ceilingHeightM    Decimal?  @db.Decimal(10, 3)
+  floorAreaM        Decimal?  @db.Decimal(10, 3)
+  measurementSource String    @default("manual")
+  sketch            Json?
+  fieldUpdatedAt    Json      @default("{}")
+  updatedAt         DateTime
+  createdAt         DateTime  @default(now())
+  deletedAt         DateTime?
+  walls             Wall[]
+  media             Media[]
+  notes             Note[]
+
+  @@index([floorId])
+  @@index([updatedAt])
+}
+
+model Wall {
+  id             String    @id
+  roomId         String
+  room           Room      @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  number         Int
+  edgeIndex      Int
+  lengthM        Decimal?  @db.Decimal(10, 3)
+  fieldUpdatedAt Json      @default("{}")
+  updatedAt      DateTime
+  createdAt      DateTime  @default(now())
+  deletedAt      DateTime?
+  media          Media[]
+  notes          Note[]
+
+  @@index([roomId])
+}
+
+model Media {
+  id             String            @id
+  projectId      String
+  project        Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  inspectionId   String?
+  inspection     Inspection?       @relation(fields: [inspectionId], references: [id])
+  floorId        String?
+  floor          Floor?            @relation(fields: [floorId], references: [id])
+  roomId         String?
+  room           Room?             @relation(fields: [roomId], references: [id])
+  wallId         String?
+  wall           Wall?             @relation(fields: [wallId], references: [id])
+  answerId       String?
+  answer         ChecklistAnswer?  @relation(fields: [answerId], references: [id])
+  kind           MediaKind
+  internal       Boolean           @default(true)
+  storageKey     String?
+  textContent    String?
+  mimeType       String?
+  fileName       String?
+  fieldUpdatedAt Json              @default("{}")
+  updatedAt      DateTime
+  createdAt      DateTime          @default(now())
+  deletedAt      DateTime?
+
+  @@index([projectId])
+  @@index([updatedAt])
+}
+
+model Note {
+  id             String            @id
+  projectId      String
+  project        Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  inspectionId   String?
+  inspection     Inspection?       @relation(fields: [inspectionId], references: [id])
+  floorId        String?
+  floor          Floor?            @relation(fields: [floorId], references: [id])
+  roomId         String?
+  room           Room?             @relation(fields: [roomId], references: [id])
+  wallId         String?
+  wall           Wall?             @relation(fields: [wallId], references: [id])
+  answerId       String?
+  answer         ChecklistAnswer?  @relation(fields: [answerId], references: [id])
+  sectionKey     String?
+  body           String
+  internal       Boolean           @default(true)
+  fieldUpdatedAt Json              @default("{}")
+  updatedAt      DateTime
+  createdAt      DateTime          @default(now())
+  deletedAt      DateTime?
+
+  @@index([projectId])
+  @@index([updatedAt])
+}
+
+model ChecklistTemplate {
+  id       String                     @id @default(uuid())
+  name     String
+  versions ChecklistTemplateVersion[]
+}
+
+model ChecklistTemplateVersion {
+  id          String             @id @default(uuid())
+  templateId  String
+  template    ChecklistTemplate  @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  version     Int
+  publishedAt DateTime?
+  createdAt   DateTime           @default(now())
+  sections    ChecklistSection[]
+  inspections Inspection[]
+
+  @@unique([templateId, version])
+}
+
+model ChecklistSection {
+  id        String                   @id @default(uuid())
+  versionId String
+  version   ChecklistTemplateVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  tradeCode String
+  name      String
+  sortOrder Int
+  items     ChecklistItem[]
+
+  @@index([versionId, sortOrder])
+}
+
+model ChecklistItem {
+  id            String           @id @default(uuid())
+  sectionId     String
+  section       ChecklistSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  prompt        String
+  helpText      String?
+  questionType  QuestionType
+  required      Boolean          @default(false)
+  choices       Json?
+  sortOrder     Int
+  unit          String?
+  priceItemCode String?
+  answers       ChecklistAnswer[]
+
+  @@index([sectionId, sortOrder])
+}
+
+model ChecklistAnswer {
+  id             String        @id
+  inspectionId   String
+  inspection     Inspection    @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  itemId         String
+  item           ChecklistItem @relation(fields: [itemId], references: [id])
+  value          Json?
+  freeText       String?
+  internalNote   String?
+  fieldUpdatedAt Json          @default("{}")
+  updatedAt      DateTime
+  createdAt      DateTime      @default(now())
+  deletedAt      DateTime?
+  media          Media[]
+  notes          Note[]
+
+  @@unique([inspectionId, itemId])
+  @@index([updatedAt])
+}
+
+model Trade {
+  id        String      @id
+  code      String      @unique
+  name      String
+  sortOrder Int
+  items     PriceItem[]
+  rates     TradeRate[]
+}
+
+model PriceList {
+  id                String          @id @default(uuid())
+  name              String
+  validFrom         DateTime        @db.Date
+  validTo           DateTime?       @db.Date
+  status            PriceListStatus
+  comment           String?
+  createdFromId     String?
+  adjustmentPercent Decimal?        @db.Decimal(6, 2)
+  createdAt         DateTime        @default(now())
+  rates             TradeRate[]
+  lines             PriceLine[]
+  quotes            Quote[]
+}
+
+model TradeRate {
+  id                    String    @id @default(uuid())
+  priceListId           String
+  priceList             PriceList @relation(fields: [priceListId], references: [id], onDelete: Cascade)
+  tradeId               String
+  trade                 Trade     @relation(fields: [tradeId], references: [id])
+  hourlyRateSale        Decimal   @db.Decimal(10, 2)
+  hourlyRateInternal    Decimal   @db.Decimal(10, 2)
+  calloutPrice          Decimal   @db.Decimal(10, 2)
+  defaultMaterialMarkup Decimal   @db.Decimal(6, 4)
+
+  @@unique([priceListId, tradeId])
+}
+
+model PriceItem {
+  id              String        @id
+  code            String        @unique
+  tradeId         String
+  trade           Trade         @relation(fields: [tradeId], references: [id])
+  name            String
+  unit            String
+  type            PriceItemType
+  sortOrder       Int
+  active          Boolean       @default(true)
+  customerVisible Boolean       @default(true)
+  internalNote    String?
+  quantityFormula String?
+  lines           PriceLine[]
+  quoteLines      QuoteLine[]
+}
+
+model PriceLine {
+  id                 String    @id @default(uuid())
+  priceListId        String
+  priceList          PriceList @relation(fields: [priceListId], references: [id], onDelete: Cascade)
+  priceItemId        String
+  priceItem          PriceItem @relation(fields: [priceItemId], references: [id])
+  materialCost       Decimal   @default(0) @db.Decimal(12, 4)
+  materialMarkup     Decimal?  @db.Decimal(6, 4)
+  hoursPerUnit       Decimal   @default(0) @db.Decimal(10, 4)
+  hourlyRateOverride Decimal?  @db.Decimal(10, 2)
+  salePriceOverride  Decimal?  @db.Decimal(12, 2)
+  costFormula        String?
+
+  @@unique([priceListId, priceItemId])
+}
+
+model Quote {
+  id               String      @id @default(uuid())
+  projectId        String
+  project          Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  priceListId      String
+  priceList        PriceList   @relation(fields: [priceListId], references: [id])
+  inspectionId     String?
+  status           QuoteStatus @default(draft)
+  extraProfitNok   Decimal     @default(0) @db.Decimal(12, 2)
+  channelFeeFactor Decimal?    @db.Decimal(6, 3)
+  vatRate          Decimal     @default(0.25) @db.Decimal(4, 3)
+  createdAt        DateTime    @default(now())
+  lines            QuoteLine[]
+}
+
+model QuoteLine {
+  id             String     @id @default(uuid())
+  quoteId        String
+  quote          Quote      @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  priceItemId    String?
+  priceItem      PriceItem? @relation(fields: [priceItemId], references: [id])
+  description    String
+  unit           String
+  quantity       Decimal    @db.Decimal(12, 4)
+  quantitySource String
+  unitPriceExVat Decimal    @db.Decimal(12, 2)
+  materialCost   Decimal    @default(0) @db.Decimal(12, 4)
+  hours          Decimal    @default(0) @db.Decimal(10, 4)
+  lineSumExVat   Decimal    @db.Decimal(12, 2)
+  internal       Boolean    @default(false)
+  rationale      String?
+  sortOrder      Int
+}
+
+model SyncConflict {
+  id          String   @id @default(uuid())
+  entityType  String
+  entityId    String
+  field       String?
+  clientValue Json?
+  serverValue Json?
+  winner      String
+  reason      String
+  userId      String?
+  createdAt   DateTime @default(now())
+
+  @@index([entityId])
+  @@index([createdAt])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  actorId    String?
+  actor      User?    @relation(fields: [actorId], references: [id])
+  action     String
+  entityType String
+  entityId   String?
+  payload    Json?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+}
+
+model MailLog {
+  id        String   @id @default(uuid())
+  toAddress String
+  subject   String
+  body      String
+  meta      Json?
+  provider  String
+  createdAt DateTime @default(now())
+}
+
+model AppSetting {
+  key   String @id
+  value String
+}

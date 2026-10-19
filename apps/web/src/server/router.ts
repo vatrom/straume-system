@@ -11,6 +11,7 @@ import { applyPriceFile, itemBom, listProducts, listSuppliers, previewPriceFile,
 import { addQuoteLine, createChangeDraft, createQuoteDraft, decideChange, emailQuote, listTemplates, plannedHours, quotePdf, quoteView, quotesFor, removeQuoteLine, reviseQuote, saveTemplate, transitionQuote, updateQuote } from "./quotes";
 import { dashboardView, deleteGoal, deleteReport, drilldown, exportInsights, goalBoard, insightMeta, queryInsights, saveGoal, saveReport, setPeerVisibility, toCsv, toExcelXml } from "./insights";
 import { addChange, addDocument, addPhase, customerView, dashboard, editChange, editPhase, listBoards, moveProject, orderPhases, projectDetail, removePhase, roomSketchFile, sendWinner, updateProject } from "./projects";
+import { inspectionPdf } from "./inspections";
 import { getObject } from "./store";
 import { pullChanges, pushMutations, saveMediaFile } from "./sync-service";
 import type { SyncMutation } from "@straume/domain";
@@ -304,6 +305,12 @@ async function dispatch(req: Request, slug: string[], user: SessionUser): Promis
   }
   if (a === "quotes" && b && c === "revision" && method === "POST") return json(await reviseQuote(user, b), 201, req);
   if (a === "quotes" && b && c === "email" && method === "POST") return json(await emailQuote(user, b), 200, req);
+  if (a === "inspections" && b && c === "pdf" && method === "GET") {
+    const file = await inspectionPdf(b);
+    return new Response(new Uint8Array(file.body), {
+      headers: { "content-type": "application/pdf", "content-disposition": `inline; filename="${encodeURIComponent(file.name)}"` },
+    });
+  }
   if (a === "quotes" && b && c === "pdf" && method === "GET") {
     const file = await quotePdf(b);
     return new Response(new Uint8Array(file.body), {

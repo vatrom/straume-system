@@ -10,10 +10,10 @@ export const colors = {
   copper: "#c4622d",
 };
 
-export function Button({ label, onPress, tone = "solid" }: { label: string; onPress: () => void; tone?: "solid" | "ghost" }) {
+export function Button({ label, onPress, tone = "solid", large = false }: { label: string; onPress: () => void; tone?: "solid" | "ghost"; large?: boolean }) {
   return (
-    <Pressable onPress={onPress} style={[styles.button, tone === "ghost" && styles.ghost]}>
-      <Text style={[styles.buttonText, tone === "ghost" && styles.ghostText]}>{label}</Text>
+    <Pressable onPress={onPress} style={[styles.button, large && styles.large, tone === "ghost" && styles.ghost]}>
+      <Text style={[styles.buttonText, large && styles.largeText, tone === "ghost" && styles.ghostText]}>{label}</Text>
     </Pressable>
   );
 }
@@ -34,6 +34,8 @@ export function Card({ children, style }: { children: React.ReactNode; style?: V
 
 const styles = StyleSheet.create({
   button: { backgroundColor: colors.sea, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 10, alignSelf: "flex-start" },
+  large: { minHeight: 48, paddingHorizontal: 16, paddingVertical: 12, justifyContent: "center" },
+  largeText: { fontSize: 16 },
   ghost: { backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.line },
   buttonText: { color: "white", fontWeight: "600" },
   ghostText: { color: colors.ink },

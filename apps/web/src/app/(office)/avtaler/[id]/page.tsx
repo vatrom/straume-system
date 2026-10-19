@@ -26,6 +26,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
           <p>{nok(dec(deal.valueNok) ?? 0)} · {deal.owner.name} · {deal.stage.name}</p>
         </div>
         {deal.project ? <Link className="btn" href={`/prosjekter/${deal.project.id}`}>Åpne prosjekt</Link> : null}
+        {inspection ? <Link className="btn" href={`/befaring/${inspection.id}`}>Befaring</Link> : null}
         {inspection ? <DraftButton dealId={deal.id} projectId={deal.project?.id} /> : null}
         {deal.status === "won" && !deal.project ? <CreateProjectButton id={deal.id} /> : null}
       </div>

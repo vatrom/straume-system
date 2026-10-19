@@ -18,10 +18,12 @@ import {
   DEFAULT_TRADE_RATES,
   numberedWalls,
   priceListFromCsv,
+  TILBUDSBEFARING,
   TRADES,
   type Sketch,
 } from "@straume/domain";
-import { PrismaClient, type ActivityType, type QuestionType } from "@prisma/client";
+import { PrismaClient, type ActivityType, type Prisma, type QuestionType } from "@prisma/client";
+import { ensureDemoBefaring } from "./befaring-seed";
 import { ensureInsights } from "./insight-seed";
 import { ensurePhase2 } from "./phase2-seed";
 
@@ -62,70 +64,6 @@ const PHASE = {
   dok: id(7, "21000000"),
   undersokelse: id(8, "21000000"),
 };
-
-const checklist: { tradeCode: string; name: string; items: { prompt: string; questionType: QuestionType; choices?: string[]; unit?: string; priceItemCode?: string; required?: boolean }[] }[] = [
-  {
-    tradeCode: "riving",
-    name: "Riving",
-    items: [
-      { prompt: "Skal kunden rive selv?", questionType: "yes_no" },
-      { prompt: "Mistanke om asbest, sopp eller skjulte skader?", questionType: "yes_no", required: true },
-      { prompt: "Trengs container?", questionType: "yes_no" },
-      { prompt: "Kommentar riving", questionType: "text" },
-    ],
-  },
-  {
-    tradeCode: "tomrer",
-    name: "Tømrer",
-    items: [
-      { prompt: "Platetype", questionType: "choice", choices: ["Våtromsplater 20 mm", "Våtromsplater 12 mm", "Fibo", "Aquapro", "Gips"], priceItemCode: "TOM-002" },
-      { prompt: "Ny dør?", questionType: "yes_no", priceItemCode: "TOM-009" },
-      { prompt: "Nytt vindu", questionType: "choice", choices: ["Nei", "Inntil 70x70", "Inntil 120x120"] },
-      { prompt: "Ny himling?", questionType: "yes_no", priceItemCode: "TOM-004" },
-      { prompt: "Kommentar tømrer", questionType: "text" },
-    ],
-  },
-  {
-    tradeCode: "elektriker",
-    name: "Elektriker",
-    items: [
-      { prompt: "Antall downlights", questionType: "number", priceItemCode: "EL-002" },
-      { prompt: "Varmekabler i gulv?", questionType: "yes_no", priceItemCode: "EL-009" },
-      { prompt: "Antall doble stikkontakter", questionType: "number", priceItemCode: "EL-006" },
-      { prompt: "Kommentar elektriker", questionType: "text" },
-    ],
-  },
-  {
-    tradeCode: "rorlegger",
-    name: "Rørlegger",
-    items: [
-      { prompt: "Sluktype", questionType: "choice", choices: ["Standard sluk", "Slukrenne", "Hjørnesluk"], priceItemCode: "ROR-011" },
-      { prompt: "Avstand fra sluk til nærmeste vegg", questionType: "measurement", unit: "m" },
-      { prompt: "Eksisterende rør-i-rør beholdes?", questionType: "yes_no", priceItemCode: "ROR-019" },
-      { prompt: "Bereder", questionType: "choice", choices: ["Ingen ny", "120 L", "200 L", "300 L", "Smart 200", "Smart 300"] },
-      { prompt: "Antall vannpunkt", questionType: "number", priceItemCode: "ROR-018" },
-      { prompt: "Kommentar rørlegger", questionType: "text" },
-    ],
-  },
-  {
-    tradeCode: "murer",
-    name: "Murer/flis",
-    items: [
-      { prompt: "Skal det flislegges?", questionType: "yes_no", priceItemCode: "MUR-002" },
-      { prompt: "Flistype", questionType: "choice", choices: ["Standard", "Storformat", "Småflis", "Gulvbelegg"] },
-      { prompt: "Kommentar murer/flis", questionType: "text" },
-    ],
-  },
-  {
-    tradeCode: "maler",
-    name: "Maler",
-    items: [
-      { prompt: "Sparkling og maling av himling?", questionType: "yes_no", priceItemCode: "MAL-005" },
-      { prompt: "Aquapro-membran utføres av maler?", questionType: "yes_no", priceItemCode: "MAL-002" },
-      { prompt: "Kommentar maler", questionType: "text" },
-    ],
-  },
-];
 
 async function ensureDealProjectSplit() {
   const day = (iso: string) => new Date(`${iso}T12:00:00.000Z`);
@@ -505,10 +443,9 @@ async function main() {
   const templateId = id(1, "80000000");
   await prisma.checklistTemplate.upsert({
     where: { id: templateId },
-    update: { name: "Standardbefaring" },
-    create: { id: templateId, name: "Standardbefaring" },
+    update: {},
+    create: { id: templateId, name: "Tilbudsbefaring" },
   });
-  const itemIds = new Map<string, string>();
   for (const version of [1, 2]) {
     const versionId = id(version, "81000000");
     await prisma.checklistTemplateVersion.upsert({
@@ -523,33 +460,15 @@ async function main() {
     });
     const existingSections = await prisma.checklistSection.count({ where: { versionId } });
     if (existingSections > 0) continue;
-    let sectionIndex = 0;
-    for (const section of checklist) {
-      sectionIndex += 1;
-      const sectionId = id(version * 100 + sectionIndex, "82000000");
-      await prisma.checklistSection.create({
-        data: { id: sectionId, versionId, tradeCode: section.tradeCode, name: section.name, sortOrder: sectionIndex },
-      });
-      let itemIndex = 0;
-      for (const item of section.items) {
-        itemIndex += 1;
-        const itemId = id(version * 1000 + sectionIndex * 10 + itemIndex, "83000000");
-        if (version === 1) itemIds.set(item.prompt, itemId);
-        await prisma.checklistItem.create({
-          data: {
-            id: itemId,
-            sectionId,
-            prompt: item.prompt,
-            questionType: item.questionType,
-            choices: item.choices ?? undefined,
-            unit: item.unit,
-            priceItemCode: item.priceItemCode,
-            required: item.required ?? false,
-            sortOrder: itemIndex,
-          },
-        });
-      }
-    }
+    await writeChecklistVersion(versionId);
+  }
+  const installed = await prisma.checklistItem.findFirst({ where: { itemKey: "kunde.beskrivelse" } });
+  if (installed) {
+    await prisma.appSetting.upsert({
+      where: { key: "checklist_tilbudsbefaring" },
+      update: {},
+      create: { key: "checklist_tilbudsbefaring", value: "1" },
+    });
   }
 
   await prisma.appSetting.upsert({
@@ -769,24 +688,6 @@ async function main() {
       fieldUpdatedAt: { body: when.toISOString(), internal: when.toISOString() },
     },
   });
-  const answerItem = itemIds.get("Ny dør?");
-  if (answerItem) {
-    await prisma.checklistAnswer.upsert({
-      where: { id: id(1, "75000000") },
-      update: {},
-      create: {
-        id: id(1, "75000000"),
-        inspectionId,
-        itemId: answerItem,
-        value: true,
-        freeText: "Hvit glatt dør, samme slagretning som i dag.",
-        internalNote: "Intern: sjekk om karm er skjev før vi lover fastpris.",
-        updatedAt: when,
-        fieldUpdatedAt: { value: when.toISOString() },
-      },
-    });
-  }
-
   const activities: { id: string; dealId: string; type: ActivityType; subject: string; dueAt: Date; done: boolean }[] = [
     { id: id(1, "51000000"), dealId: id(1, "50000000"), type: "call", subject: "Følg opp tilbud Eksempelveien", dueAt: day("2026-10-20"), done: false },
     { id: id(2, "51000000"), dealId: id(2, "50000000"), type: "meeting", subject: "Befaring Fjellstien 4", dueAt: day("2026-10-21"), done: false },
@@ -814,6 +715,70 @@ export async function repeatSeed() {
   await ensureDealProjectSplit();
   await ensureInsights(prisma);
   await ensurePhase2(prisma);
+  await ensureTilbudsbefaring();
+  await ensureDemoBefaring(prisma);
+}
+
+async function writeChecklistVersion(versionId: string) {
+  let sortOrder = 0;
+  for (const section of TILBUDSBEFARING) {
+    sortOrder += 1;
+    await prisma.checklistSection.create({
+      data: {
+        versionId,
+        tradeCode: section.tradeCode,
+        name: section.name,
+        sortOrder,
+        items: {
+          create: section.items.map((item, index) => ({
+            prompt: item.prompt,
+            helpText: item.helpText ?? null,
+            questionType: item.questionType as QuestionType,
+            required: Boolean(item.required),
+            choices: item.choices ?? undefined,
+            unit: item.unit ?? null,
+            itemKey: item.key,
+            config: (item.config ?? undefined) as Prisma.InputJsonValue | undefined,
+            sortOrder: index + 1,
+          })),
+        },
+      },
+    });
+  }
+}
+
+/** Engangsoppgradering. Når flagget er satt, rører ikke seed sjekklisten igjen. */
+async function ensureTilbudsbefaring() {
+  const flag = await prisma.appSetting.findUnique({ where: { key: "checklist_tilbudsbefaring" } });
+  if (flag) return;
+  const template = await prisma.checklistTemplate.findFirst({ orderBy: { name: "asc" } });
+  if (!template) return;
+  if (template.name === "Standardbefaring") {
+    await prisma.checklistTemplate.update({ where: { id: template.id }, data: { name: "Tilbudsbefaring" } });
+  }
+  const published = await prisma.checklistTemplateVersion.findFirst({
+    where: { templateId: template.id, publishedAt: { not: null } },
+    orderBy: { version: "desc" },
+    include: { sections: { include: { items: true } } },
+  });
+  const installed = published?.sections.some((section) => section.items.some((item) => item.itemKey === "kunde.beskrivelse"));
+  if (!installed) {
+    const latest = await prisma.checklistTemplateVersion.findFirst({ where: { templateId: template.id }, orderBy: { version: "desc" } });
+    const version = (latest?.version ?? 0) + 1;
+    const created = await prisma.checklistTemplateVersion.create({
+      data: { templateId: template.id, version, publishedAt: new Date() },
+    });
+    await writeChecklistVersion(created.id);
+    const draft = await prisma.checklistTemplateVersion.create({
+      data: { templateId: template.id, version: version + 1 },
+    });
+    await writeChecklistVersion(draft.id);
+  }
+  await prisma.appSetting.upsert({
+    where: { key: "checklist_tilbudsbefaring" },
+    update: {},
+    create: { key: "checklist_tilbudsbefaring", value: new Date().toISOString() },
+  });
 }
 
 const invokedDirectly = process.argv[1]?.endsWith("seed.ts") || process.argv[1]?.endsWith("seed.js");

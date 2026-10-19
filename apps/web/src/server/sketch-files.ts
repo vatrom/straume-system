@@ -112,33 +112,98 @@ export function textPdf(title: string, lines: string[]): Buffer {
   return pagesPdf([{ title, lines }]);
 }
 
+export function richPdf(parts: { title: string; lines: string[]; images?: { caption: string; jpeg: Buffer }[] }[]): Buffer {
+  const pages: { title: string; lines: string[]; jpeg?: Buffer; width?: number; height?: number; gray?: boolean }[] = [];
+  for (const part of parts.length ? parts : [{ title: "Tom", lines: [] }]) {
+    pages.push({ title: part.title, lines: part.lines });
+    for (const image of part.images ?? []) {
+      const size = jpegSize(image.jpeg);
+      if (!size) {
+        pages.push({ title: part.title, lines: [`Bilde: ${image.caption}`, "Bildet kunne ikke leses."] });
+        continue;
+      }
+      pages.push({ title: image.caption, lines: ["Bilde fra befaringen."], jpeg: image.jpeg, width: size.width, height: size.height, gray: size.gray });
+    }
+  }
+  return buildPdf(pages);
+}
+
+function jpegSize(buffer: Buffer): { width: number; height: number; gray: boolean } | null {
+  if (buffer[0] !== 0xff || buffer[1] !== 0xd8) return null;
+  let offset = 2;
+  while (offset + 8 < buffer.length) {
+    if (buffer[offset] !== 0xff) return null;
+    const marker = buffer[offset + 1] ?? 0;
+    if (marker === 0xd8 || marker === 0x01) {
+      offset += 2;
+      continue;
+    }
+    const length = buffer.readUInt16BE(offset + 2);
+    if (marker >= 0xc0 && marker <= 0xc3) {
+      return { height: buffer.readUInt16BE(offset + 5), width: buffer.readUInt16BE(offset + 7), gray: buffer[offset + 9] === 1 };
+    }
+    offset += 2 + length;
+  }
+  return null;
+}
+
 export function pagesPdf(pages: { title: string; lines: string[] }[]): Buffer {
+  return buildPdf(pages);
+}
+
+function buildPdf(pages: { title: string; lines: string[]; jpeg?: Buffer; width?: number; height?: number; gray?: boolean }[]): Buffer {
   const chunks = pages.length ? pages : [{ title: "Tom", lines: [] }];
-  const streams = chunks.map((page) => pageStream(page.title, page.lines));
-  const fontId = 3 + streams.length * 2;
-  const objects: string[] = [
-    "<< /Type /Catalog /Pages 2 0 R >>",
-    `<< /Type /Pages /Count ${streams.length} /Kids [${streams.map((_, index) => `${3 + index * 2} 0 R`).join(" ")}] >>`,
-  ];
-  streams.forEach((stream, index) => {
-    const contentId = 4 + index * 2;
-    objects.push(
-      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents ${contentId} 0 R /Resources << /Font << /F1 ${fontId} 0 R >> >> >>`,
-      `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`,
+  const pageIds: number[] = [];
+  const contentIds: number[] = [];
+  const imageIds: Array<number | null> = [];
+  let nextId = 3;
+  for (const page of chunks) {
+    pageIds.push(nextId);
+    nextId += 1;
+    contentIds.push(nextId);
+    nextId += 1;
+    imageIds.push(page.jpeg ? nextId++ : null);
+  }
+  const fontId = nextId;
+  const objects = new Map<number, string>();
+  objects.set(1, "<< /Type /Catalog /Pages 2 0 R >>");
+  objects.set(2, `<< /Type /Pages /Count ${chunks.length} /Kids [${pageIds.map((id) => `${id} 0 R`).join(" ")}] >>`);
+  chunks.forEach((page, index) => {
+    const imageId = imageIds[index];
+    let stream = pageStream(page.title, page.lines);
+    let resources = `/Font << /F1 ${fontId} 0 R >>`;
+    if (page.jpeg && imageId && page.width && page.height) {
+      const scale = Math.min(500 / page.width, 460 / page.height);
+      const width = Math.max(1, Math.round(page.width * scale));
+      const height = Math.max(1, Math.round(page.height * scale));
+      stream += `\nq\n${width} 0 0 ${height} 48 220 cm\n/Im Do\nQ`;
+      resources += ` /XObject << /Im ${imageId} 0 R >>`;
+      const hex = page.jpeg.toString("hex");
+      objects.set(
+        imageId,
+        `<< /Type /XObject /Subtype /Image /Width ${page.width} /Height ${page.height} /ColorSpace /${page.gray ? "DeviceGray" : "DeviceRGB"} /BitsPerComponent 8 /Filter [/ASCIIHexDecode /DCTDecode] /Length ${hex.length + 1} >>\nstream\n${hex}>\nendstream`,
+      );
+    }
+    objects.set(
+      pageIds[index]!,
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents ${contentIds[index]} 0 R /Resources << ${resources} >> >>`,
     );
+    objects.set(contentIds[index]!, `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`);
   });
-  objects.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+  objects.set(fontId, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+  const ordered = [...objects.entries()].sort((a, b) => a[0] - b[0]);
   let body = "%PDF-1.4\n";
-  const offsets = [0];
-  objects.forEach((object, index) => {
-    offsets.push(Buffer.byteLength(body));
-    body += `${index + 1} 0 obj\n${object}\nendobj\n`;
-  });
+  const offsets = new Map<number, number>();
+  for (const [id, object] of ordered) {
+    offsets.set(id, Buffer.byteLength(body));
+    body += `${id} 0 obj\n${object}\nendobj\n`;
+  }
   const xref = Buffer.byteLength(body);
-  body += `xref\n0 ${objects.length + 1}\n`;
+  const size = fontId + 1;
+  body += `xref\n0 ${size}\n`;
   body += "0000000000 65535 f \n";
-  for (const offset of offsets.slice(1)) body += `${String(offset).padStart(10, "0")} 00000 n \n`;
-  body += `trailer << /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+  for (let id = 1; id < size; id += 1) body += `${String(offsets.get(id) ?? 0).padStart(10, "0")} 00000 n \n`;
+  body += `trailer << /Size ${size} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
   return Buffer.from(body);
 }
 

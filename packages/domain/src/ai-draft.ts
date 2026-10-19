@@ -1,5 +1,6 @@
 import type { CalcLine, ChannelCode, CommercialSettings } from "./calc";
 import { calculateQuote, priceLineToCalc } from "./calc";
+import { evaluateChecklist, type ItemConfig } from "./checklist";
 import { mergeTemplate, type MergeContext } from "./merge";
 import type { PriceLineInput, RateInput } from "./pricing";
 import { evalQuantity, type QuantityContext } from "./quantities";
@@ -12,6 +13,10 @@ export type DraftAnswer = {
   freeText: string | null;
   priceItemCode: string | null;
   internalNote: string | null;
+  key?: string | null;
+  questionType?: string | null;
+  unit?: string | null;
+  config?: ItemConfig | null;
 };
 
 export type DraftNote = { body: string; internal: boolean; roomName?: string | null };
@@ -52,6 +57,9 @@ export type AiDraftShape = {
   emailSubject: string;
   emailBody: string;
   flags: string[];
+  channel?: ChannelCode | null;
+  extraProfitNok?: number | null;
+  manualItems?: { prompt: string; detail: string }[];
 };
 
 const SECRET_MIN = 12;
@@ -112,6 +120,9 @@ function formulaQuantity(line: PriceLineInput, room: DraftRoom | null): number |
 /** Deterministisk utkast når Anthropic-nøkkel mangler. Pris settes aldri her. */
 export function mockDraft(request: DraftRequest): AiDraftShape {
   const flags: string[] = [];
+  let draftChannel: ChannelCode | null = null;
+  let draftExtra: number | null = null;
+  let draftManual: { prompt: string; detail: string }[] = [];
   const room = primaryRoom(request);
   if (!room) flags.push("Mangler rommål fra befaringen.");
   else flags.push(...room.assumptions);
@@ -149,6 +160,22 @@ export function mockDraft(request: DraftRequest): AiDraftShape {
       });
     }
     if (choices.length === 0) flags.push("Fant ingen varekode som passer beskrivelsen. Legg inn poster manuelt.");
+  } else if (request.answers.some((answer) => answer.key || answer.config)) {
+    const built = evaluateChecklist({ answers: request.answers, catalog: request.catalog, room });
+    for (const line of built.lines) {
+      push({
+        code: line.code,
+        quantity: line.quantity,
+        rationale: line.rationale,
+        uncertain: line.uncertain,
+        uncertaintyNote: line.uncertaintyNote,
+        optional: line.optional,
+      });
+    }
+    flags.push(...built.flags);
+    draftChannel = built.channel;
+    draftExtra = built.extraProfitNok;
+    draftManual = built.manualItems;
   } else {
     for (const answer of request.answers) {
       const decision = positive(answer.value);
@@ -213,6 +240,9 @@ export function mockDraft(request: DraftRequest): AiDraftShape {
     emailSubject: request.mode === "change" ? "Pris på tilleggsarbeid" : "Tilbud på badet",
     emailBody: email.text,
     flags: [...new Set(flags)],
+    channel: draftChannel,
+    extraProfitNok: draftExtra,
+    manualItems: draftManual,
   };
 }
 
@@ -329,8 +359,8 @@ export function applyDraft(request: DraftRequest, draft: AiDraftShape, extraProf
     lines,
     rates: request.rates,
     commercial: request.commercial,
-    extraProfitNok,
-    channel: request.channel,
+    extraProfitNok: draft.extraProfitNok ?? extraProfitNok,
+    channel: draft.channel ?? request.channel,
   });
   const merge = mergeContext(request, totals.totalIncVat);
   const customer = sanitizeCustomerText(mergeTemplate(draft.customerText, merge), secrets);
@@ -410,6 +440,7 @@ export function draftPrompt(request: DraftRequest): { system: string; user: stri
       "Skriv kundetekst på norsk bokmål etter tekstmalene. Ikke ta med linjepriser, bare poster, mengder og totalsum-plassholder {{total.ink}}.",
       "Begrunn hver linje. Flagg usikkerhet og manglende informasjon.",
       "Feltet internalNotes er kun til intern vurdering. Ingen setning derfra, og ingen formulering som røper innholdet, skal inn i customerText, reservations eller emailBody.",
+      "Sjekkliste med mapping er fasit for grunnutkastet. Fritekst kan legge til ekstra poster med begrunnelse. Mangler varekode, skriv det i flags som «må prises manuelt» og ikke finn på en pris.",
       "Ikke ta med kundenavn, telefon, e-post eller adresse.",
     ].join(" "),
     user: JSON.stringify(payload),

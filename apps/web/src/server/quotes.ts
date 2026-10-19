@@ -1,6 +1,7 @@
 import { prisma, type QuoteStatus } from "@straume/db";
 import {
   applyDraft,
+  asItemConfig,
   assertQuoteTransition,
   calculateQuote,
   canEditQuote,
@@ -134,6 +135,10 @@ async function draftRequest(input: { dealId?: string | null; projectId?: string 
       freeText: answer.freeText,
       priceItemCode: answer.item.priceItemCode,
       internalNote: answer.internalNote,
+      key: answer.item.itemKey,
+      questionType: answer.item.questionType,
+      unit: answer.item.unit,
+      config: asItemConfig(answer.item.config),
     })),
     notes: (inspection?.notes ?? []).map((note) => ({ body: note.body, internal: note.internal })),
     media: (inspection?.media ?? []).map((item) => ({ id: item.id, kind: item.kind, fileName: item.fileName, internal: item.internal })),
@@ -165,6 +170,7 @@ export async function createQuoteDraft(user: Actor, input: { dealId?: string; pr
   const completion = await completeDraft(built.request);
   const applied = applyDraft(built.request, completion.draft);
   const choiceByCode = new Map(completion.draft.lines.map((line) => [line.code, line]));
+  const manual = completion.draft.manualItems ?? [];
   const quote = await prisma.quote.create({
     data: {
       projectId: built.projectId,
@@ -194,29 +200,50 @@ export async function createQuoteDraft(user: Actor, input: { dealId?: string; pr
       flags: applied.flags,
       createdById: user.id,
       lines: {
-        create: applied.totals.lines.map((line, index) => {
-          const choice = choiceByCode.get(line.code);
-          const source = applied.lines[index];
-          return {
-            priceItemId: line.code,
-            tradeCode: line.tradeCode,
-            code: line.code,
-            description: line.name,
-            unit: line.unit,
-            quantity: line.quantity,
-            quantitySource: "ai",
-            unitPriceExVat: line.unitPriceExVat,
-            materialCost: source?.materialCost ?? line.materialCostPerUnit,
-            hours: line.hours,
-            lineSumExVat: line.lineSumExVat,
-            optional: line.optional,
-            included: line.included,
-            uncertain: Boolean(choice?.uncertain),
-            uncertaintyNote: choice?.uncertaintyNote,
-            rationale: choice?.rationale ?? "",
-            sortOrder: index + 1,
-          };
-        }),
+        create: [
+          ...applied.totals.lines.map((line, index) => {
+            const choice = choiceByCode.get(line.code);
+            const source = applied.lines[index];
+            return {
+              priceItemId: line.code as string | null,
+              tradeCode: line.tradeCode,
+              code: line.code as string | null,
+              description: line.name,
+              unit: line.unit,
+              quantity: line.quantity,
+              quantitySource: "ai",
+              unitPriceExVat: line.unitPriceExVat,
+              materialCost: source?.materialCost ?? line.materialCostPerUnit,
+              hours: line.hours,
+              lineSumExVat: line.lineSumExVat,
+              optional: line.optional,
+              included: line.included,
+              uncertain: Boolean(choice?.uncertain),
+              uncertaintyNote: choice?.uncertaintyNote,
+              rationale: choice?.rationale ?? "",
+              sortOrder: index + 1,
+            };
+          }),
+          ...manual.map((item, index) => ({
+            priceItemId: null as string | null,
+            tradeCode: "annet",
+            code: null as string | null,
+            description: `Må prises manuelt: ${item.prompt}`,
+            unit: "stk",
+            quantity: 1,
+            quantitySource: "checklist",
+            unitPriceExVat: 0,
+            materialCost: 0,
+            hours: 0,
+            lineSumExVat: 0,
+            optional: false,
+            included: false,
+            uncertain: true,
+            uncertaintyNote: "Må prises manuelt",
+            rationale: item.detail,
+            sortOrder: applied.totals.lines.length + index + 1,
+          })),
+        ],
       },
       events: { create: { action: "draft", toStatus: "draft", actorId: user.id, actorName: await actorName(user), note: completion.provider === "mock" ? "Utkast uten API-nøkkel" : "Utkast fra Claude" } },
       aiLogs: {

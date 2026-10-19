@@ -52,6 +52,10 @@ enum QuestionType {
   measurement
   choice
   text
+  text_short
+  multi
+  date
+  media
 }
 
 enum PriceListStatus {
@@ -563,6 +567,8 @@ model ChecklistItem {
   sortOrder     Int
   unit          String?
   priceItemCode String?
+  itemKey       String?
+  config        Json?
   answers       ChecklistAnswer[]
 
   @@index([sectionId, sortOrder])

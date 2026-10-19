@@ -159,6 +159,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
             <strong>{inspection.templateVersion ? `Sjekkliste v${inspection.templateVersion.version}` : "Befaring"}</strong>
             <span className="muted"> · {inspection.inspector?.name ?? "Ukjent"} · {inspection.status}</span>
             <div className="muted">{inspection.answers.filter((answer) => !answer.deletedAt).length} svar</div>
+            <Link href={`/befaring/${inspection.id}`}>Vis oppsummering</Link>
           </div>
         ))}
         {project.floors.map((floor) => (

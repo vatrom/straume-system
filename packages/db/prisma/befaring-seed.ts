@@ -4,11 +4,16 @@ import { fileURLToPath } from "node:url";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import {
   applyDraft,
+  asBlockInclude,
   asItemConfig,
+  composeQuoteDocument,
+  MAL_BLOCKS,
   mockDraft,
   quantityContext,
+  suggestionFromRequest,
   type DraftAnswer,
   type PriceLineInput,
+  type QuoteTextBlock,
   type RateInput,
 } from "@straume/domain";
 
@@ -165,7 +170,12 @@ export async function ensureDemoBefaring(prisma: PrismaClient) {
   }
 
   const quoteId = id(9, "90000000");
-  if (await prisma.quote.findUnique({ where: { id: quoteId } })) return;
+  const existingQuote = await prisma.quote.findUnique({ where: { id: quoteId } });
+  if (existingQuote?.customerText?.includes("håndverkertjenesteloven")) return;
+  if (existingQuote) {
+    await refreshDemoDocument(prisma, quoteId);
+    return;
+  }
   const inspection = await prisma.inspection.findUnique({
     where: { id: inspectionId },
     include: { answers: { include: { item: { include: { section: true } } } }, notes: true, media: true, floors: { include: { rooms: true } }, deal: true },
@@ -242,7 +252,8 @@ export async function ensureDemoBefaring(prisma: PrismaClient) {
       assemblyHourlyNok: list.assemblyHourlyNok == null ? null : Number(list.assemblyHourlyNok),
     },
     channel: "none" as const,
-    validDays: 30,
+    textBlocks: await publishedBlocks(prisma),
+    ...(await quoteTerms(prisma)),
   };
   const draft = mockDraft(request);
   const applied = applyDraft(request, draft);
@@ -264,6 +275,7 @@ export async function ensureDemoBefaring(prisma: PrismaClient) {
       reservations: applied.reservations,
       emailSubject: applied.emailSubject,
       emailBody: applied.emailBody,
+      aiSuggestion: applied.aiSuggestion,
       sumExVat: applied.totals.subtotalExVat,
       addonsExVat: applied.totals.addonsExVat,
       vatNok: applied.totals.vatNok,
@@ -314,6 +326,137 @@ export async function ensureDemoBefaring(prisma: PrismaClient) {
           })),
         ],
       },
+    },
+  });
+}
+
+async function publishedBlocks(prisma: PrismaClient): Promise<QuoteTextBlock[]> {
+  const version = await prisma.textBlockVersion.findFirst({
+    where: { publishedAt: { not: null } },
+    orderBy: { version: "desc" },
+    include: { blocks: { orderBy: { sortOrder: "asc" } } },
+  });
+  if (!version?.blocks.length) return MAL_BLOCKS;
+  return version.blocks.flatMap((block) => {
+    const include = asBlockInclude(block.includeWhen);
+    if (!include) return [];
+    return [
+      {
+        key: block.key,
+        name: block.name,
+        section: block.section,
+        kind: block.kind as QuoteTextBlock["kind"],
+        body: block.body,
+        sortOrder: block.sortOrder,
+        include,
+        locked: block.locked,
+        aiSelectable: block.aiSelectable,
+      },
+    ];
+  });
+}
+
+async function quoteTerms(prisma: PrismaClient) {
+  const rows = await prisma.appSetting.findMany({
+    where: { key: { in: ["quote_valid_days", "quote_payment_start_percent", "quote_payment_finish_percent", "quote_payment_due_days"] } },
+  });
+  const value = (key: string, fallback: number) => {
+    const found = rows.find((row) => row.key === key);
+    const parsed = found ? Number(found.value) : fallback;
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+  return {
+    validDays: value("quote_valid_days", 30),
+    paymentStartPercent: value("quote_payment_start_percent", 70),
+    paymentFinishPercent: value("quote_payment_finish_percent", 30),
+    paymentDueDays: value("quote_payment_due_days", 10),
+  };
+}
+
+function nbDate(value: Date | null | undefined): string | null {
+  if (!value) return null;
+  const day = String(value.getUTCDate()).padStart(2, "0");
+  const month = String(value.getUTCMonth() + 1).padStart(2, "0");
+  return `${day}.${month}.${value.getUTCFullYear()}`;
+}
+
+async function refreshDemoDocument(prisma: PrismaClient, quoteId: string) {
+  const quote = await prisma.quote.findUnique({
+    where: { id: quoteId },
+    include: { lines: true, project: true, priceList: { include: { rates: { include: { trade: true } } } } },
+  });
+  if (!quote?.inspectionId) return;
+  const inspection = await prisma.inspection.findUnique({
+    where: { id: quote.inspectionId },
+    include: { answers: { include: { item: true } }, notes: true },
+  });
+  if (!inspection) return;
+  const terms = await quoteTerms(prisma);
+  const answers = inspection.answers.map((answer) => ({
+    key: answer.item.itemKey,
+    value: answer.value,
+    freeText: answer.freeText,
+    prompt: answer.item.prompt,
+    questionType: answer.item.questionType,
+  }));
+  const doc = composeQuoteDocument({
+    blocks: await publishedBlocks(prisma),
+    lines: quote.lines.map((line) => ({
+      code: line.code,
+      tradeCode: line.tradeCode,
+      description: line.description,
+      unit: line.unit,
+      quantity: Number(line.quantity),
+      included: line.included,
+      internal: line.internal,
+      lineSumExVat: Number(line.lineSumExVat),
+    })),
+    answers,
+    merge: {
+      rates: quote.priceList.rates.map((rate) => ({
+        tradeCode: rate.trade.code,
+        hourlyRateSale: Number(rate.hourlyRateSale),
+        hourlyRateInternal: Number(rate.hourlyRateInternal),
+        calloutPrice: rate.calloutPrice == null ? null : Number(rate.calloutPrice),
+        defaultMaterialMarkup: Number(rate.defaultMaterialMarkup),
+        subcontractor: rate.trade.subcontractor,
+      })),
+      commercial: {
+        vatRate: Number(quote.priceList.vatRate),
+        byggstartPercent: Number(quote.priceList.byggstartPercent),
+        byggstartFactor: Number(quote.priceList.byggstartFactor),
+        mittanbudPercent: Number(quote.priceList.mittanbudPercent),
+        mittanbudFactor: Number(quote.priceList.mittanbudFactor),
+        extraCalloutNok: quote.priceList.extraCalloutNok == null ? 490 : Number(quote.priceList.extraCalloutNok),
+        tileAllowanceExVat: quote.priceList.tileAllowanceExVat == null ? 400 : Number(quote.priceList.tileAllowanceExVat),
+        electricianCostFactor: Number(quote.priceList.electricianCostFactor),
+        assemblyHourlyNok: quote.priceList.assemblyHourlyNok == null ? 1450 : Number(quote.priceList.assemblyHourlyNok),
+      },
+      totalIncVat: Number(quote.totalIncVat),
+      ...terms,
+      startDate: nbDate(quote.project?.plannedStartDate ?? quote.project?.startDate),
+      endDate: nbDate(quote.project?.plannedEndDate ?? quote.project?.endDate),
+    },
+  });
+  const suggestion = suggestionFromRequest({
+    answers: answers.map((answer) => ({
+      prompt: answer.prompt,
+      tradeCode: "annet",
+      value: answer.value,
+      freeText: answer.freeText,
+      priceItemCode: null,
+      internalNote: null,
+      questionType: answer.questionType,
+    })),
+    notes: inspection.notes.map((note) => ({ body: note.body, internal: note.internal })),
+  });
+  await prisma.quote.update({
+    where: { id: quoteId },
+    data: {
+      customerText: doc.customerText,
+      reservations: doc.reservations,
+      aiSuggestion: suggestion,
+      validDays: terms.validDays,
     },
   });
 }

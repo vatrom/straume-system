@@ -48,6 +48,8 @@ const TOOL = {
       emailSubject: { type: "string" },
       emailBody: { type: "string" },
       flags: { type: "array", items: { type: "string" } },
+      suggestions: { type: "string" },
+      selectedBlockKeys: { type: "array", items: { type: "string" } },
     },
   },
 };

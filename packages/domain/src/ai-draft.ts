@@ -4,6 +4,7 @@ import { evaluateChecklist, type ItemConfig } from "./checklist";
 import { mergeTemplate, type MergeContext } from "./merge";
 import type { PriceLineInput, RateInput } from "./pricing";
 import { evalQuantity, type QuantityContext } from "./quantities";
+import { composeQuoteDocument, isStandardDocument, type QuoteTextBlock } from "./quote-document";
 import { TRADES, tradeName } from "./trades";
 
 export type DraftAnswer = {
@@ -39,6 +40,13 @@ export type DraftRequest = {
   commercial: CommercialSettings;
   channel: ChannelCode;
   validDays?: number;
+  /** Publiserte tekstblokker. Når de er med, er standardteksten låst og settes sammen i koden. */
+  textBlocks?: QuoteTextBlock[];
+  paymentStartPercent?: number;
+  paymentFinishPercent?: number;
+  paymentDueDays?: number;
+  startDate?: string | null;
+  endDate?: string | null;
 };
 
 export type AiLineChoice = {
@@ -60,6 +68,10 @@ export type AiDraftShape = {
   channel?: ChannelCode | null;
   extraProfitNok?: number | null;
   manualItems?: { prompt: string; detail: string }[];
+  /** Ekstra setninger for fritekst. Blir ikke en del av standardteksten. */
+  suggestions?: string;
+  /** Blokker modellen vil ta med i tillegg til dem som følger av sjekkliste og varekoder. */
+  selectedBlockKeys?: string[];
 };
 
 const SECRET_MIN = 12;
@@ -224,8 +236,10 @@ export function mockDraft(request: DraftRequest): AiDraftShape {
 
   const secrets = internalSnippets(request);
   const merge = mergeContext(request, 0);
-  const customerText = sanitizeCustomerText(composeCustomerText(request, choices, merge), secrets).text;
-  const reservations = sanitizeCustomerText(composeReservations(request, merge), secrets).text;
+  const composed = request.mode === "quote" && request.textBlocks?.length ? composeFromBlocks(request, [], merge, []) : null;
+  const customerText = sanitizeCustomerText(composed?.customerText ?? composeCustomerText(request, choices, merge), secrets).text;
+  const reservations = sanitizeCustomerText(composed?.reservations ?? composeReservations(request, merge), secrets).text;
+  const suggestions = request.textBlocks?.length ? suggestionFromRequest(request) : "";
   const email = sanitizeCustomerText(composeEmail(request, merge), secrets);
   if (secrets.length) flags.push("Interne notater er holdt utenfor kundeteksten.");
   for (const answer of request.answers) {
@@ -243,6 +257,7 @@ export function mockDraft(request: DraftRequest): AiDraftShape {
     channel: draftChannel,
     extraProfitNok: draftExtra,
     manualItems: draftManual,
+    suggestions,
   };
 }
 
@@ -258,7 +273,49 @@ function numberNear(text: string, words: string[]): number | null {
 }
 
 function mergeContext(request: DraftRequest, totalIncVat: number): MergeContext {
-  return { rates: request.rates, commercial: request.commercial, totalIncVat, validDays: request.validDays ?? 30 };
+  return {
+    rates: request.rates,
+    commercial: request.commercial,
+    totalIncVat,
+    validDays: request.validDays ?? 30,
+    paymentStartPercent: request.paymentStartPercent,
+    paymentFinishPercent: request.paymentFinishPercent,
+    paymentDueDays: request.paymentDueDays,
+    startDate: request.startDate,
+    endDate: request.endDate,
+  };
+}
+
+export function suggestionFromRequest(request: Pick<DraftRequest, "answers" | "notes">): string {
+  const lines: string[] = [];
+  for (const answer of request.answers) {
+    const typed = answer.questionType === "text" || answer.questionType === "text_short";
+    if (typed && typeof answer.value === "string" && answer.value.trim()) lines.push(`${answer.prompt}: ${answer.value.trim()}`);
+    if (answer.freeText?.trim()) lines.push(`${answer.prompt}: ${answer.freeText.trim()}`);
+  }
+  for (const note of request.notes) {
+    if (!note.internal && note.body.trim()) lines.push(note.body.trim());
+  }
+  return lines.join("\n");
+}
+
+function composeFromBlocks(request: DraftRequest, lines: { code: string; tradeCode: string; name: string; unit: string; quantity: number; included: boolean; internal?: boolean; lineSumExVat: number }[], merge: MergeContext, selectedKeys: string[] | undefined) {
+  return composeQuoteDocument({
+    blocks: request.textBlocks ?? [],
+    lines: lines.map((line) => ({
+      code: line.code,
+      tradeCode: line.tradeCode,
+      description: line.name,
+      unit: line.unit,
+      quantity: line.quantity,
+      included: line.included,
+      internal: line.internal,
+      lineSumExVat: line.lineSumExVat,
+    })),
+    answers: request.answers.map((answer) => ({ key: answer.key ?? null, value: answer.value, freeText: answer.freeText })),
+    merge,
+    selectedKeys,
+  });
 }
 
 function composeCustomerText(request: DraftRequest, choices: AiLineChoice[], merge: MergeContext): string {
@@ -332,6 +389,7 @@ export type AppliedDraft = {
   emailBody: string;
   flags: string[];
   leaked: string[];
+  aiSuggestion: string;
 };
 
 /** Motoren slår opp koder og regner pris. Tekst fra modellen renses for interne notater. */
@@ -363,10 +421,35 @@ export function applyDraft(request: DraftRequest, draft: AiDraftShape, extraProf
     channel: draft.channel ?? request.channel,
   });
   const merge = mergeContext(request, totals.totalIncVat);
-  const customer = sanitizeCustomerText(mergeTemplate(draft.customerText, merge), secrets);
-  const reservations = sanitizeCustomerText(mergeTemplate(draft.reservations, merge), secrets);
+  const locked = request.mode === "quote" && (request.textBlocks?.length ?? 0) > 0;
+  const composed = locked
+    ? composeFromBlocks(
+        request,
+        totals.lines.map((line) => ({
+          code: line.code,
+          tradeCode: line.tradeCode,
+          name: line.name,
+          unit: line.unit,
+          quantity: line.quantity,
+          included: line.included,
+          internal: line.internal,
+          lineSumExVat: line.lineSumExVat,
+        })),
+        merge,
+        draft.selectedBlockKeys,
+      )
+    : null;
+  const customer = sanitizeCustomerText(composed ? composed.customerText : mergeTemplate(draft.customerText, merge), secrets);
+  const reservations = sanitizeCustomerText(composed ? composed.reservations : mergeTemplate(draft.reservations, merge), secrets);
   const email = sanitizeCustomerText(mergeTemplate(draft.emailBody, merge), secrets);
-  const leaked = [...new Set([...customer.removed, ...reservations.removed, ...email.removed])];
+  const suggestionSource = locked
+    ? [draft.suggestions?.trim(), suggestionFromRequest(request), isStandardDocument(draft.customerText) ? "" : draft.customerText.trim()]
+        .filter((part): part is string => Boolean(part))
+        .filter((part, index, all) => all.indexOf(part) === index)
+        .join("\n\n")
+    : "";
+  const suggestion = sanitizeCustomerText(suggestionSource, secrets);
+  const leaked = [...new Set([...customer.removed, ...reservations.removed, ...email.removed, ...suggestion.removed])];
   if (leaked.length) flags.push("Intern tekst ble fjernet fra kundeteksten.");
   return {
     lines,
@@ -377,6 +460,7 @@ export function applyDraft(request: DraftRequest, draft: AiDraftShape, extraProf
     emailBody: email.text,
     flags: [...new Set(flags)],
     leaked,
+    aiSuggestion: suggestion.text,
   };
 }
 
@@ -437,7 +521,8 @@ export function draftPrompt(request: DraftRequest): { system: string; user: stri
     system: [
       "Du lager tilbudsutkast for Straume Våtrom AS.",
       "Velg kun varekoder fra katalogen og sett mengde. Ikke oppgi pris, påslag eller timesats.",
-      "Skriv kundetekst på norsk bokmål etter tekstmalene. Ikke ta med linjepriser, bare poster, mengder og totalsum-plassholder {{total.ink}}.",
+      "Standardtekster og forbehold er låst. Ikke skriv om customerText eller reservations, og ikke endre en standardsetning.",
+      "Du kan bare velge ekstra tekstblokker via selectedBlockKeys, og foreslå tilleggstekst for fritekstpunkter i suggestions. Forslaget merkes som AI-forslag og blir ikke en del av standardteksten.",
       "Begrunn hver linje. Flagg usikkerhet og manglende informasjon.",
       "Feltet internalNotes er kun til intern vurdering. Ingen setning derfra, og ingen formulering som røper innholdet, skal inn i customerText, reservations eller emailBody.",
       "Sjekkliste med mapping er fasit for grunnutkastet. Fritekst kan legge til ekstra poster med begrunnelse. Mangler varekode, skriv det i flags som «må prises manuelt» og ikke finn på en pris.",

@@ -14,6 +14,7 @@ import {
   priceLineToCalc,
   QUOTE_STATUS_LABEL,
   roleCanApprove,
+  AI_SUGGESTION_HEADING,
   sanitizeCustomerText,
   TRADES,
   type CalcLine,
@@ -28,6 +29,7 @@ import { dec } from "./dates";
 import { mailProvider } from "./mail";
 import { loadList } from "./price-admin";
 import { pagesPdf } from "./sketch-files";
+import { publishedTextBlocks, quoteTerms } from "./text-blocks";
 
 type Actor = { id: string; role: string; name?: string };
 
@@ -149,6 +151,17 @@ async function draftRequest(input: { dealId?: string | null; projectId?: string 
     channel: channelFromSource(deal?.sourceChannel),
     validDays: 30,
   };
+  if (input.mode === "quote") {
+    const terms = await quoteTerms();
+    const project = inspection?.project;
+    request.validDays = terms.validDays;
+    request.paymentStartPercent = terms.paymentStartPercent;
+    request.paymentFinishPercent = terms.paymentFinishPercent;
+    request.paymentDueDays = terms.paymentDueDays;
+    request.startDate = nbDate(project?.plannedStartDate ?? project?.startDate);
+    request.endDate = nbDate(project?.plannedEndDate ?? project?.endDate);
+    request.textBlocks = await publishedTextBlocks();
+  }
   return {
     request,
     inspectionId: inspection?.id ?? null,
@@ -157,6 +170,13 @@ async function draftRequest(input: { dealId?: string | null; projectId?: string 
     projectId: input.projectId ?? inspection?.projectId ?? null,
     title: input.mode === "change" ? "Tilleggsarbeid" : "Tilbud",
   };
+}
+
+function nbDate(value: Date | null | undefined): string | null {
+  if (!value) return null;
+  const day = String(value.getUTCDate()).padStart(2, "0");
+  const month = String(value.getUTCMonth() + 1).padStart(2, "0");
+  return `${day}.${month}.${value.getUTCFullYear()}`;
 }
 
 function hoursMap(trades: { tradeCode: string; hours: number }[]) {
@@ -188,6 +208,8 @@ export async function createQuoteDraft(user: Actor, input: { dealId?: string; pr
       reservations: applied.reservations,
       emailSubject: applied.emailSubject,
       emailBody: applied.emailBody,
+      aiSuggestion: applied.aiSuggestion,
+      validDays: built.request.validDays ?? 30,
       sumExVat: applied.totals.subtotalExVat,
       addonsExVat: applied.totals.addonsExVat,
       vatNok: applied.totals.vatNok,
@@ -370,6 +392,7 @@ export async function quoteView(id: string) {
     channelCode: quote.channelCode,
     customerText: quote.customerText ?? "",
     reservations: quote.reservations ?? "",
+    aiSuggestion: quote.aiSuggestion ?? "",
     emailSubject: quote.emailSubject ?? "",
     emailBody: quote.emailBody ?? "",
     validDays: quote.validDays,
@@ -434,6 +457,7 @@ export async function updateQuote(
     title?: string;
     customerText?: string;
     reservations?: string;
+    aiSuggestion?: string;
     emailSubject?: string;
     emailBody?: string;
     extraProfitNok?: number;
@@ -453,6 +477,7 @@ export async function updateQuote(
       title: input.title?.trim() || undefined,
       customerText: text(input.customerText),
       reservations: text(input.reservations),
+      aiSuggestion: text(input.aiSuggestion),
       emailSubject: text(input.emailSubject),
       emailBody: text(input.emailBody),
       validDays: input.validDays,
@@ -587,6 +612,7 @@ export async function reviseQuote(user: Actor, id: string) {
       reservations: quote.reservations,
       emailSubject: quote.emailSubject,
       emailBody: quote.emailBody,
+      aiSuggestion: quote.aiSuggestion,
       validDays: quote.validDays,
       sumExVat: quote.sumExVat,
       addonsExVat: quote.addonsExVat,
@@ -643,6 +669,25 @@ export async function emailQuote(user: Actor, id: string) {
   return { mailId: sent.id };
 }
 
+function wrapPdfLines(text: string, width = 88): string[] {
+  const out: string[] = [];
+  for (const raw of text.split("\n")) {
+    let rest = raw;
+    if (rest.length <= width) {
+      out.push(rest);
+      continue;
+    }
+    while (rest.length > width) {
+      let cut = rest.lastIndexOf(" ", width);
+      if (cut < 24) cut = width;
+      out.push(rest.slice(0, cut));
+      rest = rest.slice(cut).trimStart();
+    }
+    if (rest) out.push(rest);
+  }
+  return out;
+}
+
 export async function quotePdf(id: string): Promise<{ name: string; body: Buffer }> {
   const quote = await quoteView(id);
   const lines = [
@@ -651,14 +696,18 @@ export async function quotePdf(id: string): Promise<{ name: string; body: Buffer
     `Mva: ${quote.vatNok} kr`,
     `Totalt inkl. mva: ${quote.totalIncVat} kr`,
     "",
-    ...quote.customerText.split("\n"),
+    ...wrapPdfLines(quote.customerText),
     "",
     "Poster",
     ...quote.lines.filter((line) => !line.internal && line.included).map((line) => `${line.description}  ${line.quantity} ${line.unit}`),
-    "",
-    "Forbehold",
-    ...quote.reservations.split("\n"),
   ];
+  const reservationHead = quote.reservations.trim().slice(0, 80);
+  if (quote.reservations.trim() && !quote.customerText.includes(reservationHead)) {
+    lines.push("", "Forbehold", ...quote.reservations.split("\n"));
+  }
+  if (quote.aiSuggestion.trim()) {
+    lines.push("", AI_SUGGESTION_HEADING, ...quote.aiSuggestion.split("\n"));
+  }
   const pages = [];
   for (let index = 0; index < lines.length; index += 40) {
     pages.push({ title: index === 0 ? quote.title : `${quote.title} forts.`, lines: lines.slice(index, index + 40) });

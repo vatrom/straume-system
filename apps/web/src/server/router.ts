@@ -9,6 +9,7 @@ import { activateList, addItem, adjustComponentVersion, adjustPriceList, archive
 import { listTrades, reorderTrades, setTradeSubcontractor } from "./trades";
 import { applyPriceFile, itemBom, listProducts, listSuppliers, previewPriceFile, saveItemBom, saveSupplier } from "./catalog";
 import { addQuoteLine, createChangeDraft, createQuoteDraft, decideChange, emailQuote, listTemplates, plannedHours, quotePdf, quoteView, quotesFor, removeQuoteLine, reviseQuote, saveTemplate, transitionQuote, updateQuote } from "./quotes";
+import { publishTextBlocks, saveQuoteTerms, saveTextBlock, textBlockEditor } from "./text-blocks";
 import { dashboardView, deleteGoal, deleteReport, drilldown, exportInsights, goalBoard, insightMeta, queryInsights, saveGoal, saveReport, setPeerVisibility, toCsv, toExcelXml } from "./insights";
 import { addChange, addDocument, addPhase, customerView, dashboard, editChange, editPhase, listBoards, moveProject, orderPhases, projectDetail, removePhase, roomSketchFile, sendWinner, updateProject } from "./projects";
 import { inspectionPdf } from "./inspections";
@@ -331,6 +332,12 @@ async function dispatch(req: Request, slug: string[], user: SessionUser): Promis
     const body = await readJson<{ body: string }>(req);
     return json(await saveTemplate(user, decodeURIComponent(b), body.body), 200, req);
   }
+  if (a === "text-blocks" && !b && method === "GET") return json(await textBlockEditor(), 200, req);
+  if (a === "text-blocks" && b === "publish" && method === "POST") return json(await publishTextBlocks(user), 200, req);
+  if (a === "text-blocks" && b && method === "PUT") {
+    const body = await readJson<{ body: string; choiceKey?: string; choiceValues?: string; codes?: string; numberKey?: string }>(req);
+    return json(await saveTextBlock(user, decodeURIComponent(b), body), 200, req);
+  }
   if (a === "sync" && b === "pull" && method === "GET") {
     const since = new URL(req.url).searchParams.get("since");
     return json(await pullChanges(since), 200, req);
@@ -353,6 +360,10 @@ async function dispatch(req: Request, slug: string[], user: SessionUser): Promis
     if (!body.winnerEmail.includes("@")) throw new DomainError("E-postadressen er ugyldig");
     await prisma.appSetting.upsert({ where: { key: "winner_email" }, update: { value: body.winnerEmail.trim() }, create: { key: "winner_email", value: body.winnerEmail.trim() } });
     return json({ ok: true }, 200, req);
+  }
+  if (a === "settings" && b === "terms" && method === "PUT") {
+    const body = await readJson<{ validDays: number; paymentStartPercent: number; paymentFinishPercent: number; paymentDueDays: number }>(req);
+    return json(await saveQuoteTerms(user, body), 200, req);
   }
   if (a === "settings" && b === "approvers" && method === "PUT") {
     if (user.role !== "admin") throw new HttpError(403, "Bare administrator kan gjøre dette");

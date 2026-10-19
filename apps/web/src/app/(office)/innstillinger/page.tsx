@@ -10,6 +10,12 @@ export default async function SettingsPage() {
   if (!user) redirect("/login");
   const winner = await prisma.appSetting.findUnique({ where: { key: "winner_email" } });
   const approvers = await prisma.appSetting.findUnique({ where: { key: "quote_approver_roles" } });
+  const terms = {
+    validDays: Number((await prisma.appSetting.findUnique({ where: { key: "quote_valid_days" } }))?.value ?? 30),
+    paymentStartPercent: Number((await prisma.appSetting.findUnique({ where: { key: "quote_payment_start_percent" } }))?.value ?? 70),
+    paymentFinishPercent: Number((await prisma.appSetting.findUnique({ where: { key: "quote_payment_finish_percent" } }))?.value ?? 30),
+    paymentDueDays: Number((await prisma.appSetting.findUnique({ where: { key: "quote_payment_due_days" } }))?.value ?? 10),
+  };
   const users = user.role === "admin" ? await prisma.user.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, email: true, role: true, active: true } }) : [];
   const options = user.role === "admin" ? await listOptions() : [];
   const trades = await listTrades();
@@ -21,7 +27,7 @@ export default async function SettingsPage() {
           <p className="muted">Winner-mottaker, fagrekkefølge, brukere og valglister. E-post logges lokalt og sendes ikke ut.</p>
         </div>
       </div>
-      <SettingsForms winnerEmail={winner?.value ?? ""} approverRoles={(approvers?.value ?? "admin,kontor").split(",")} isAdmin={user.role === "admin"} users={users} trades={trades} lists={options.map((list) => ({ key: list.key, name: list.name, items: list.items.map((item) => ({ id: item.id, label: item.label, active: item.active })) }))} />
+      <SettingsForms winnerEmail={winner?.value ?? ""} approverRoles={(approvers?.value ?? "admin,kontor").split(",")} isAdmin={user.role === "admin"} users={users} terms={terms} trades={trades} lists={options.map((list) => ({ key: list.key, name: list.name, items: list.items.map((item) => ({ id: item.id, label: item.label, active: item.active })) }))} />
     </>
   );
 }

@@ -1,5 +1,5 @@
-import { FORMAT_PRESETS, numberedWalls, type Sketch } from "@straume/domain";
-import type { PrismaClient } from "@prisma/client";
+import { DEFAULT_QUOTE_TERMS, FORMAT_PRESETS, MAL_BLOCKS, numberedWalls, type Sketch } from "@straume/domain";
+import type { Prisma, PrismaClient } from "@prisma/client";
 
 const id = (n: number, group: string) => `${group}-0000-4000-8000-${String(n).padStart(12, "0")}`;
 
@@ -135,6 +135,55 @@ export async function ensurePhase2(prisma: PrismaClient) {
   }
 
   await seedFjellstien(prisma);
+}
+
+const QUOTE_TERMS: [string, string][] = [
+  ["quote_valid_days", String(DEFAULT_QUOTE_TERMS.validDays)],
+  ["quote_payment_start_percent", String(DEFAULT_QUOTE_TERMS.paymentStartPercent)],
+  ["quote_payment_finish_percent", String(DEFAULT_QUOTE_TERMS.paymentFinishPercent)],
+  ["quote_payment_due_days", String(DEFAULT_QUOTE_TERMS.paymentDueDays)],
+];
+
+/** Engangsinstallasjon av tilbudsmalen. Senere redigering i kontoret blir stående. */
+export async function ensureTextBlocks(prisma: PrismaClient) {
+  await prisma.priceList.updateMany({ where: { assemblyHourlyNok: null }, data: { assemblyHourlyNok: 1450 } });
+  for (const [key, value] of QUOTE_TERMS) {
+    await prisma.appSetting.upsert({ where: { key }, update: {}, create: { key, value } });
+  }
+  const flag = await prisma.appSetting.findUnique({ where: { key: "tekstblokker_mal" } });
+  if (flag) return;
+  const existing = await prisma.textBlock.findFirst({ where: { key: "intro.takk" } });
+  if (!existing) {
+    const set = await prisma.textBlockSet.create({ data: { name: "Tilbudsmal" } });
+    const published = await prisma.textBlockVersion.create({ data: { setId: set.id, version: 1, publishedAt: new Date() } });
+    await writeTextBlocks(prisma, published.id);
+    const draft = await prisma.textBlockVersion.create({ data: { setId: set.id, version: 2 } });
+    await writeTextBlocks(prisma, draft.id);
+  }
+  await prisma.appSetting.upsert({
+    where: { key: "tekstblokker_mal" },
+    update: {},
+    create: { key: "tekstblokker_mal", value: new Date().toISOString() },
+  });
+}
+
+async function writeTextBlocks(prisma: PrismaClient, versionId: string) {
+  for (const item of MAL_BLOCKS) {
+    await prisma.textBlock.create({
+      data: {
+        versionId,
+        key: item.key,
+        name: item.name,
+        section: item.section,
+        kind: item.kind,
+        body: item.body,
+        sortOrder: item.sortOrder,
+        includeWhen: item.include as Prisma.InputJsonValue,
+        locked: item.locked,
+        aiSelectable: item.aiSelectable,
+      },
+    });
+  }
 }
 
 async function seedFjellstien(prisma: PrismaClient) {

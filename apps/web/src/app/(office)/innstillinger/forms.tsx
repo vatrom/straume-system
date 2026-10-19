@@ -16,6 +16,7 @@ export function SettingsForms({
   users,
   trades,
   lists,
+  terms,
 }: {
   winnerEmail: string;
   approverRoles: string[];
@@ -23,6 +24,7 @@ export function SettingsForms({
   users: { id: string; name: string; email: string; role: string; active: boolean }[];
   trades: { code: string; name: string; subcontractor: boolean }[];
   lists: { key: string; name: string; items: { id: string; label: string; active: boolean }[] }[];
+  terms: { validDays: number; paymentStartPercent: number; paymentFinishPercent: number; paymentDueDays: number };
 }) {
   const [message, setMessage] = useState("");
   const [order, setOrder] = useState(trades);
@@ -58,6 +60,34 @@ export function SettingsForms({
             Lagre
           </button>
         ) : null}
+      </form>
+      <form
+        className="card stack"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          const form = new FormData(event.currentTarget);
+          try {
+            await send("/api/settings/terms", "PUT", {
+              validDays: Number(form.get("validDays")),
+              paymentStartPercent: Number(form.get("paymentStartPercent")),
+              paymentFinishPercent: Number(form.get("paymentFinishPercent")),
+              paymentDueDays: Number(form.get("paymentDueDays")),
+            });
+            setMessage("Gyldighet og betaling lagret");
+          } catch (error) {
+            setMessage(error instanceof Error ? error.message : "Feil");
+          }
+        }}
+      >
+        <h2>Gyldighet og betalingsvilkår</h2>
+        <p className="muted">Tallene flettes inn i standardteksten. Setningene ellers står fast.</p>
+        <div className="row">
+          <label className="field"><span>Gyldighet, dager</span><input name="validDays" type="number" min={1} defaultValue={terms.validDays} disabled={!isAdmin} /></label>
+          <label className="field"><span>Oppstart, %</span><input name="paymentStartPercent" type="number" min={0} max={100} defaultValue={terms.paymentStartPercent} disabled={!isAdmin} /></label>
+          <label className="field"><span>Ferdigstillelse, %</span><input name="paymentFinishPercent" type="number" min={0} max={100} defaultValue={terms.paymentFinishPercent} disabled={!isAdmin} /></label>
+          <label className="field"><span>Forfall, dager</span><input name="paymentDueDays" type="number" min={1} defaultValue={terms.paymentDueDays} disabled={!isAdmin} /></label>
+        </div>
+        {isAdmin ? <button className="btn primary" type="submit">Lagre vilkår</button> : null}
       </form>
       <form
         className="card stack"

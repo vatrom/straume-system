@@ -65,7 +65,7 @@ export const DEFAULT_COMMERCIAL: CommercialSettings = {
   extraCalloutNok: 490,
   tileAllowanceExVat: 400,
   electricianCostFactor: 1.15,
-  assemblyHourlyNok: null,
+  assemblyHourlyNok: 1450,
 };
 
 export type PriceListInput = {

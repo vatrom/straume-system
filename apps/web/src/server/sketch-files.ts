@@ -87,11 +87,22 @@ export function sketchToPng(sketch: Sketch): Buffer {
   return encodePng(width, height, px);
 }
 
+const WIN_ANSI: Record<number, number> = {
+  0x2013: 0x96,
+  0x2014: 0x97,
+  0x2018: 0x91,
+  0x2019: 0x92,
+  0x201c: 0x93,
+  0x201d: 0x94,
+  0x2026: 0x85,
+  0x00a0: 0x20,
+};
+
 function pdfEscape(value: string): string {
   let out = "";
   for (const char of value) {
     const code = char.charCodeAt(0);
-    const byte = code < 256 ? code : 63;
+    const byte = WIN_ANSI[code] ?? (code < 256 ? code : 63);
     if (byte === 40 || byte === 41 || byte === 92) out += `\\${String.fromCharCode(byte)}`;
     else if (byte < 32 || byte > 126) out += `\\${byte.toString(8).padStart(3, "0")}`;
     else out += String.fromCharCode(byte);

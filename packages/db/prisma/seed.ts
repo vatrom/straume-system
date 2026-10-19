@@ -25,7 +25,7 @@ import {
 import { PrismaClient, type ActivityType, type Prisma, type QuestionType } from "@prisma/client";
 import { ensureDemoBefaring } from "./befaring-seed";
 import { ensureInsights } from "./insight-seed";
-import { ensurePhase2 } from "./phase2-seed";
+import { ensurePhase2, ensureTextBlocks } from "./phase2-seed";
 
 const prisma = new PrismaClient();
 
@@ -355,7 +355,6 @@ async function main() {
       extraCalloutNok: commercial?.extraCalloutNok,
       tileAllowanceExVat: commercial?.tileAllowanceExVat,
       electricianCostFactor: commercial?.electricianCostFactor,
-      assemblyHourlyNok: commercial?.assemblyHourlyNok,
     },
     create: {
       id: priceList.id,
@@ -371,7 +370,7 @@ async function main() {
       extraCalloutNok: commercial?.extraCalloutNok,
       tileAllowanceExVat: commercial?.tileAllowanceExVat,
       electricianCostFactor: commercial?.electricianCostFactor,
-      assemblyHourlyNok: commercial?.assemblyHourlyNok,
+      assemblyHourlyNok: commercial?.assemblyHourlyNok ?? 1450,
     },
   });
   for (const rate of DEFAULT_TRADE_RATES) {
@@ -716,6 +715,7 @@ export async function repeatSeed() {
   await ensureInsights(prisma);
   await ensurePhase2(prisma);
   await ensureTilbudsbefaring();
+  await ensureTextBlocks(prisma);
   await ensureDemoBefaring(prisma);
 }
 

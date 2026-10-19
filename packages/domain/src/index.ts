@@ -15,6 +15,7 @@ export * from "./calc";
 export * from "./quote-flow";
 export * from "./merge";
 export * from "./ai-draft";
+export * from "./quote-document";
 export * from "./checklist";
 export * from "./tilbudsbefaring";
 export * from "./catalog";

@@ -26,6 +26,7 @@ type Quote = {
   title: string;
   customerText: string;
   reservations: string;
+  aiSuggestion: string;
   emailSubject: string;
   emailBody: string;
   channelCode: string;
@@ -51,6 +52,7 @@ export function QuoteEditor({ quote }: { quote: Quote }) {
   const router = useRouter();
   const [message, setMessage] = useState("");
   const editable = quote.status === "draft" || quote.status === "pending_approval";
+  const standardLocked = quote.customerText.includes("LOV 1989-06-16 nr 63");
 
   async function send(path: string, method: string, body?: unknown) {
     const response = await fetch(path, { method, headers: { "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
@@ -123,8 +125,9 @@ export function QuoteEditor({ quote }: { quote: Quote }) {
           <button className="btn primary" type="button" onClick={async () => {
             try {
               await send(`/api/quotes/${quote.id}`, "PATCH", {
-                customerText: (document.getElementById("customer") as HTMLTextAreaElement).value,
-                reservations: (document.getElementById("reservations") as HTMLTextAreaElement).value,
+                customerText: standardLocked ? undefined : (document.getElementById("customer") as HTMLTextAreaElement).value,
+                reservations: standardLocked ? undefined : (document.getElementById("reservations") as HTMLTextAreaElement).value,
+                aiSuggestion: (document.getElementById("suggestion") as HTMLTextAreaElement | null)?.value,
                 emailSubject: (document.getElementById("subject") as HTMLInputElement).value,
                 emailBody: (document.getElementById("email") as HTMLTextAreaElement).value,
                 lines: quote.lines.map((line) => ({
@@ -144,13 +147,22 @@ export function QuoteEditor({ quote }: { quote: Quote }) {
         </form>
       ) : null}
       <label className="field">
-        <span>Kundetekst</span>
-        <textarea id="customer" rows={8} defaultValue={quote.customerText} disabled={!editable} />
+        <span>{standardLocked ? "Standardtekst fra tekstblokkene" : "Kundetekst"}</span>
+        <textarea id="customer" rows={14} defaultValue={quote.customerText} disabled={!editable || standardLocked} readOnly={standardLocked} />
       </label>
+      {standardLocked ? <p className="muted">Standardtekst og forbehold endres i tekstbiblioteket. De kan ikke skrives om i tilbudet.</p> : null}
       <label className="field">
         <span>Forbehold</span>
-        <textarea id="reservations" rows={5} defaultValue={quote.reservations} disabled={!editable} />
+        <textarea id="reservations" rows={5} defaultValue={quote.reservations} disabled={!editable || standardLocked} readOnly={standardLocked} />
       </label>
+      <section className="card stack" style={{ borderColor: "#e2c36b" }}>
+        <div className="row">
+          <span className="badge warn">AI-forslag</span>
+          <strong>Tilleggstekst for fritekstpunkter</strong>
+        </div>
+        <p className="muted">Forslaget er ikke en del av standardteksten og endrer ikke forbeholdene.</p>
+        <textarea id="suggestion" rows={5} defaultValue={quote.aiSuggestion} disabled={!editable} />
+      </section>
       <label className="field">
         <span>E-postemne</span>
         <input id="subject" defaultValue={quote.emailSubject} disabled={!editable} />

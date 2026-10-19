@@ -713,6 +713,8 @@ model Quote {
   hoursTotal        Decimal     @default(0) @db.Decimal(10, 2)
   hoursByTrade      Json        @default("{}")
   flags             Json        @default("[]")
+  /** Tilleggstekst fra utkastet. Standardtekst og forbehold ligger i customerText. */
+  aiSuggestion      String?     @db.Text
   createdById       String?
   submittedAt       DateTime?
   approvedAt        DateTime?
@@ -817,6 +819,42 @@ model TextTemplate {
   body      String   @db.Text
   sortOrder Int      @default(0)
   updatedAt DateTime @updatedAt
+}
+
+model TextBlockSet {
+  id       String             @id @default(uuid())
+  name     String
+  versions TextBlockVersion[]
+}
+
+model TextBlockVersion {
+  id          String       @id @default(uuid())
+  setId       String
+  set         TextBlockSet @relation(fields: [setId], references: [id], onDelete: Cascade)
+  version     Int
+  publishedAt DateTime?
+  createdAt   DateTime     @default(now())
+  blocks      TextBlock[]
+
+  @@unique([setId, version])
+}
+
+model TextBlock {
+  id           String           @id @default(uuid())
+  versionId    String
+  version      TextBlockVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  key          String
+  name         String
+  section      String
+  kind         String
+  body         String           @db.Text
+  sortOrder    Int
+  includeWhen  Json
+  locked       Boolean          @default(true)
+  aiSelectable Boolean          @default(false)
+
+  @@unique([versionId, key])
+  @@index([versionId, sortOrder])
 }
 
 model Supplier {

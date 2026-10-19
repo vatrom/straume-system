@@ -20,6 +20,7 @@ import {
   priceListFromCsv,
   TILBUDSBEFARING,
   TRADES,
+  VIDAR_PRICE_LINES,
   type Sketch,
 } from "@straume/domain";
 import { PrismaClient, type ActivityType, type Prisma, type QuestionType } from "@prisma/client";
@@ -715,6 +716,7 @@ export async function repeatSeed() {
   await ensureInsights(prisma);
   await ensurePhase2(prisma);
   await ensureTilbudsbefaring();
+  await ensureVidarPrisfelt();
   await ensureTextBlocks(prisma);
   await ensureDemoBefaring(prisma);
 }
@@ -778,6 +780,78 @@ async function ensureTilbudsbefaring() {
     where: { key: "checklist_tilbudsbefaring" },
     update: {},
     create: { key: "checklist_tilbudsbefaring", value: new Date().toISOString() },
+  });
+}
+
+/** Nye prisposter og én ny sjekklisteversjon. Eksisterende rader oppdateres ikke. */
+async function ensureVidarPrisfelt() {
+  const listId = id(1, "30000000");
+  const list = await prisma.priceList.findUnique({ where: { id: listId } });
+  if (list) {
+    for (const line of VIDAR_PRICE_LINES) {
+      await prisma.priceItem.upsert({
+        where: { code: line.code },
+        update: {},
+        create: {
+          id: line.code,
+          code: line.code,
+          tradeId: line.tradeCode,
+          name: line.name,
+          unit: line.unit,
+          type: line.type,
+          sortOrder: line.sortOrder,
+          active: line.active,
+          customerVisible: line.customerVisible,
+          internalNote: line.internalNote,
+          quantityFormula: line.quantityFormula,
+          splitConfidence: line.splitConfidence ?? "known",
+          splitNote: line.splitNote ?? null,
+        },
+      });
+      await prisma.priceLine.upsert({
+        where: { priceListId_priceItemId: { priceListId: list.id, priceItemId: line.code } },
+        update: {},
+        create: {
+          priceListId: list.id,
+          priceItemId: line.code,
+          materialCost: line.materialCost,
+          materialMarkup: line.materialMarkup,
+          hoursPerUnit: line.hoursPerUnit,
+          hourlyRateOverride: line.hourlyRateOverride,
+          salePriceOverride: line.salePriceOverride,
+          costFormula: line.costFormula,
+        },
+      });
+    }
+  }
+  const flag = await prisma.appSetting.findUnique({ where: { key: "checklist_prisfelt" } });
+  if (flag) return;
+  const template = await prisma.checklistTemplate.findFirst({ orderBy: { name: "asc" } });
+  if (!template) return;
+  const published = await prisma.checklistTemplateVersion.findFirst({
+    where: { templateId: template.id, publishedAt: { not: null } },
+    orderBy: { version: "desc" },
+    include: { sections: { include: { items: true } } },
+  });
+  const items = published?.sections.flatMap((section) => section.items) ?? [];
+  const tildekking = items.find((item) => item.itemKey === "riving.tildekking");
+  const mapped = JSON.stringify(tildekking?.config ?? "").includes('"RIV-004"') && items.some((item) => item.itemKey === "mal.annet_m2");
+  if (!mapped) {
+    const latest = await prisma.checklistTemplateVersion.findFirst({ where: { templateId: template.id }, orderBy: { version: "desc" } });
+    const version = (latest?.version ?? 0) + 1;
+    const created = await prisma.checklistTemplateVersion.create({
+      data: { templateId: template.id, version, publishedAt: new Date() },
+    });
+    await writeChecklistVersion(created.id);
+    const draft = await prisma.checklistTemplateVersion.create({
+      data: { templateId: template.id, version: version + 1 },
+    });
+    await writeChecklistVersion(draft.id);
+  }
+  await prisma.appSetting.upsert({
+    where: { key: "checklist_prisfelt" },
+    update: {},
+    create: { key: "checklist_prisfelt", value: new Date().toISOString() },
   });
 }
 

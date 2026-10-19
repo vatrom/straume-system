@@ -3,7 +3,7 @@
 import { TRADES, type ChecklistQuestionType, type ItemConfig, type ItemRole } from "@straume/domain";
 import { useState } from "react";
 
-type Mapping = { when: string; code: string; formula: string };
+type Mapping = { when: string; code: string; formula: string; once?: boolean };
 
 export type EditorItem = {
   prompt: string;
@@ -239,7 +239,7 @@ function ItemEditor({ item, canEdit, keys, onChange, onRemove }: { item: EditorI
         </label>
       ) : null}
       <div className="stack">
-        <span className="muted">Varekoder. Formel kan være svar, 1, gulvareal, omkrets eller flisareal.</span>
+        <span className="muted">Varekoder. Formel kan være svar, 1, et tall, gulvareal, omkrets, flisareal eller gipsvegger.</span>
         {item.mappings.map((mapping, mappingIndex) => (
           <div className="row" key={mappingIndex}>
             <input value={mapping.when} disabled={!canEdit} placeholder="valg, tom = hele svaret" onChange={(event) => onChange(setMapping(item, mappingIndex, { ...mapping, when: event.target.value }))} />
@@ -285,7 +285,14 @@ function configOf(item: EditorItem): ItemConfig {
   }
   if (item.role === "channel") config.channelByChoice = record(item.channelByChoice) as ItemConfig["channelByChoice"];
   const mappings = item.mappings.filter((mapping) => mapping.code.trim() && mapping.formula.trim());
-  if (mappings.length) config.mappings = mappings.map((mapping) => ({ when: mapping.when.trim() || null, code: mapping.code.trim(), formula: mapping.formula.trim() }));
+  if (mappings.length) {
+    config.mappings = mappings.map((mapping) => ({
+      when: mapping.when.trim() || null,
+      code: mapping.code.trim(),
+      formula: mapping.formula.trim(),
+      ...(mapping.once ? { once: true } : {}),
+    }));
+  }
   return config;
 }
 

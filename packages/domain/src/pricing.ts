@@ -79,6 +79,56 @@ export type PriceListInput = {
   commercial?: CommercialSettings;
 };
 
+/**
+ * Poster Vidar la til etter regnearket. Seed oppretter dem bare når koden mangler.
+ * TOM-020: materiell 800 kr i kost med tømrerpåslag 0,3, pluss 3 timer à 910 kr.
+ * EL-016: underleverandør, 1,5 time × 1 150 kr, uten egne timer.
+ */
+export const VIDAR_PRICE_LINES: PriceLineInput[] = [
+  {
+    itemId: "TOM-020",
+    code: "TOM-020",
+    tradeCode: "tomrer",
+    name: "Bygge toalettkasse (arbeid og materiell)",
+    unit: "stk",
+    type: "unit_price",
+    materialCost: 800,
+    materialMarkup: 0.3,
+    hoursPerUnit: 3,
+    hourlyRateOverride: null,
+    salePriceOverride: null,
+    quantityFormula: null,
+    costFormula: null,
+    internalNote: "3 timer tømrer à 910 kr og materiellkost 800 kr med tømrerpåslag 30 %.",
+    customerVisible: true,
+    active: true,
+    sortOrder: 20,
+    splitConfidence: "known",
+    splitNote: "3 t × 910 kr pluss materiell 800 kr × 1,3.",
+  },
+  {
+    itemId: "EL-016",
+    code: "EL-016",
+    tradeCode: "elektriker",
+    name: "Tilkobling av VVB",
+    unit: "stk",
+    type: "unit_price",
+    materialCost: 0,
+    materialMarkup: 0,
+    hoursPerUnit: 0,
+    hourlyRateOverride: null,
+    salePriceOverride: 1725,
+    quantityFormula: null,
+    costFormula: null,
+    internalNote: "Underleverandør. 1,5 time × 1 150 kr eks. mva. Ingen egne timer.",
+    customerVisible: true,
+    active: true,
+    sortOrder: 16,
+    splitConfidence: "known",
+    splitNote: "Underleverandør. Fast salgspris uten egne timer.",
+  },
+];
+
 export const DEFAULT_TRADE_RATES: RateInput[] = [
   { tradeCode: "riving", hourlyRateSale: 930, hourlyRateInternal: 395, calloutPrice: null, defaultMaterialMarkup: 0.2, subcontractor: false },
   { tradeCode: "tomrer", hourlyRateSale: 910, hourlyRateInternal: 395, calloutPrice: null, defaultMaterialMarkup: 0.3, subcontractor: false },

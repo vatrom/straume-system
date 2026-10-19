@@ -1,5 +1,6 @@
 import { prisma } from "@straume/db";
 import { DomainError } from "@straume/domain";
+import { repeatSeed } from "../../../../packages/db/prisma/seed";
 import { afterAll, describe, expect, it } from "vitest";
 import { applyPriceFile } from "./catalog";
 import { priceListView } from "./price-admin";
@@ -119,5 +120,52 @@ describe("fase 2 mot databasen", () => {
     expect(line?.bomFlags).toEqual([]);
     const locked = await prisma.quoteLine.findFirstOrThrow({ where: { quoteId: quote.id } });
     expect(Number(locked.unitPriceExVat)).toBe(999);
+  });
+
+  it("legger inn Vidar-poster uten å overskrive en endret pris", async () => {
+    const before = await prisma.checklistTemplateVersion.count();
+    await repeatSeed();
+    const tom = await prisma.priceLine.findFirstOrThrow({
+      where: { priceItem: { code: "TOM-020" } },
+      include: { priceItem: true },
+    });
+    expect(tom.priceItem.name).toBe("Bygge toalettkasse (arbeid og materiell)");
+    expect(Number(tom.materialCost)).toBe(800);
+    expect(Number(tom.hoursPerUnit)).toBe(3);
+    expect(Number(tom.materialMarkup)).toBeCloseTo(0.3, 4);
+    expect(tom.salePriceOverride).toBeNull();
+    const el = await prisma.priceLine.findFirstOrThrow({ where: { priceItem: { code: "EL-016" } }, include: { priceItem: true } });
+    expect(el.priceItem.name).toBe("Tilkobling av VVB");
+    expect(Number(el.salePriceOverride)).toBe(1725);
+    expect(Number(el.hoursPerUnit)).toBe(0);
+    expect(await prisma.priceItem.findFirst({ where: { name: { contains: "Hovedstoppekran" } } })).toBeNull();
+    const callout = await prisma.priceLine.findFirstOrThrow({ where: { priceItem: { code: "RIV-004" } } });
+    expect(Number(callout.salePriceOverride)).toBe(490);
+    const published = await prisma.checklistTemplateVersion.findFirstOrThrow({
+      where: { publishedAt: { not: null } },
+      orderBy: { version: "desc" },
+      include: { sections: { include: { items: true } } },
+    });
+    const fields = published.sections.flatMap((section) => section.items);
+    expect(JSON.stringify(fields.find((item) => item.itemKey === "riving.tildekking")?.config)).toContain("RIV-004");
+    expect(fields.some((item) => item.itemKey === "mal.annet_m2")).toBe(true);
+    expect(JSON.stringify(fields.find((item) => item.itemKey === "ror.avlop50")?.config)).toContain("ROR-017");
+    const after = await prisma.checklistTemplateVersion.count();
+    expect(after).toBeGreaterThanOrEqual(before);
+    await prisma.priceLine.update({ where: { id: tom.id }, data: { materialCost: 1234, salePriceOverride: 9999 } });
+    await prisma.priceItem.update({ where: { id: tom.priceItemId }, data: { name: "Admin endret kasse" } });
+    try {
+      await repeatSeed();
+      const kept = await prisma.priceLine.findUniqueOrThrow({ where: { id: tom.id }, include: { priceItem: true } });
+      expect(Number(kept.materialCost)).toBe(1234);
+      expect(Number(kept.salePriceOverride)).toBe(9999);
+      expect(kept.priceItem.name).toBe("Admin endret kasse");
+      expect(await prisma.checklistTemplateVersion.count()).toBe(after);
+      const keptCallout = await prisma.priceLine.findFirstOrThrow({ where: { priceItem: { code: "RIV-004" } } });
+      expect(Number(keptCallout.salePriceOverride)).toBe(490);
+    } finally {
+      await prisma.priceLine.update({ where: { id: tom.id }, data: { materialCost: 800, salePriceOverride: null } });
+      await prisma.priceItem.update({ where: { id: tom.priceItemId }, data: { name: "Bygge toalettkasse (arbeid og materiell)" } });
+    }
   });
 });

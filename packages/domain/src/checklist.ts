@@ -9,8 +9,10 @@ export type ChecklistMapping = {
   /** Tomt gjelder hele svaret. Satt gjelder ett valg. */
   when?: string | null;
   code: string;
-  /** svar, 1 eller et mengdeuttrykk (gulvareal, omkrets, flisareal, …). */
+  /** svar, 1, et fast tall eller et mengdeuttrykk (gulvareal, omkrets, flisareal, gipsvegger, …). */
   formula: string;
+  /** Oppstart og liknende legges inn én gang selv om flere valg peker på samme kode. */
+  once?: boolean;
 };
 
 export type ShowWhen = {
@@ -182,6 +184,7 @@ export function evaluateChecklist(input: {
   };
 
   const place = (answer: ChecklistAnswerInput, mapping: ChecklistMapping, svar: number, because: string) => {
+    if (mapping.once && bucket.has(mapping.code)) return;
     const hit = catalog.get(mapping.code);
     if (!hit || hit.active === false || hit.type === "freetext" || hit.type === "percent_addon") {
       manualFlag(because, hit ? `Varekode ${mapping.code} kan ikke brukes i kalkylen.` : `Varekode ${mapping.code} finnes ikke i prisdatabasen.`);
@@ -309,18 +312,27 @@ function measuresFrom(answers: ChecklistAnswerInput[], room: QuantityContext | n
   const gulv = read("maal.gulv");
   const hoyde = read("maal.hoyde");
   const omkrets = read("maal.omkrets");
-  if (gulv == null && hoyde == null && omkrets == null) return room;
-  return quantityContext({
-    perimeterM: omkrets ?? room?.omkrets ?? 0,
-    ceilingHeightM: hoyde ?? room?.takhoyde ?? 0,
-    floorAreaM: gulv ?? room?.gulvareal ?? 0,
-  });
+  let base = room;
+  if (gulv != null || hoyde != null || omkrets != null) {
+    base = quantityContext({
+      perimeterM: omkrets ?? room?.omkrets ?? 0,
+      ceilingHeightM: hoyde ?? room?.takhoyde ?? 0,
+      floorAreaM: gulv ?? room?.gulvareal ?? 0,
+    });
+  }
+  if (!base) return null;
+  const measured = Math.max(0, read("tomrer.gips_vat") ?? 0) + Math.max(0, read("tomrer.gips_ekstra") ?? 0);
+  return { ...base, gipsvegger: measured > 0 ? roundQty(measured) : base.veggareal };
 }
 
 function mappingQuantity(formula: string, svar: number, room: QuantityContext | null): number | null {
   const trimmed = formula.trim();
   if (trimmed === "1") return 1;
   if (trimmed === "svar") return svar > 0 ? svar : null;
+  if (/^\d+(?:\.\d+)?$/.test(trimmed)) {
+    const fixed = Number(trimmed);
+    return fixed > 0 ? fixed : null;
+  }
   if (!room) return null;
   const rewritten = trimmed.replace(/\bsvar\b/g, String(svar));
   const quantity = evalQuantity(rewritten, room);

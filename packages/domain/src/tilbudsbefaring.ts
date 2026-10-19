@@ -1,6 +1,11 @@
 import type { ChecklistMapping, ChecklistSectionSpec, ItemConfig } from "./checklist";
 
-const link = (code: string, formula: string, when?: string): ChecklistMapping => ({ when: when ?? null, code, formula });
+const link = (code: string, formula: string, when?: string, once = false): ChecklistMapping => ({
+  when: when ?? null,
+  code,
+  formula,
+  ...(once ? { once: true } : {}),
+});
 
 function price(mappings: ChecklistMapping[], extra?: Partial<ItemConfig>): ItemConfig {
   return { role: "price", mappings, ...extra };
@@ -74,7 +79,20 @@ export const TILBUDSBEFARING: ChecklistSectionSpec[] = [
         prompt: "Tildekking",
         questionType: "choice",
         choices: ["Lite", "Middels", "Mye"],
-        config: price([]),
+        config: price([
+          link("RIV-001", "12", "Lite"),
+          link("RIV-002", "1200", "Lite"),
+          link("RIV-004", "2", "Lite"),
+          link("RIV-003", "1", "Lite"),
+          link("RIV-001", "20", "Middels"),
+          link("RIV-002", "2000", "Middels"),
+          link("RIV-004", "4", "Middels"),
+          link("RIV-003", "1", "Middels"),
+          link("RIV-001", "30", "Mye"),
+          link("RIV-002", "2500", "Mye"),
+          link("RIV-004", "6", "Mye"),
+          link("RIV-003", "1", "Mye"),
+        ]),
       },
       {
         key: "riving.hva",
@@ -91,14 +109,16 @@ export const TILBUDSBEFARING: ChecklistSectionSpec[] = [
           "Platekledning på vegger",
           "Rive himling",
         ],
-        config: price([link("RIV-001", "gulvareal", "Pigge påstøp")]),
+        helpText: "Valgene er informasjon. Timeforbruk prises under tildekking.",
+        config: { role: "info" },
       },
       {
         key: "riving.omfang",
         prompt: "Omfang riving",
         questionType: "choice",
         choices: ["1-2 dager", "3-4 dager", "5+ dager"],
-        config: price([]),
+        helpText: "Antall dager er informasjon og prises ikke.",
+        config: { role: "info" },
       },
       { key: "riving.tekst", prompt: "Fritekst riving", questionType: "text", config: { role: "info" } },
     ],
@@ -125,6 +145,7 @@ export const TILBUDSBEFARING: ChecklistSectionSpec[] = [
         ],
         config: price([
           link("TOM-012", "1", "Oppretting av vegger"),
+          link("TOM-020", "1", "Bygge toalettkasse"),
           link("TOM-004", "gulvareal", "Ny gipshimling"),
           link("TOM-006", "veggareal", "Kryssfiner på vegger"),
           link("TOM-002", "(omkrets/0.6)*1.2", "Våtromsplater på vegger"),
@@ -183,9 +204,9 @@ export const TILBUDSBEFARING: ChecklistSectionSpec[] = [
       { key: "el.himling", prompt: "Lampepunkt i himling, stk", questionType: "number", unit: "stk", config: price([link("EL-003", "svar")]) },
       { key: "el.bryter", prompt: "Bryter, stk", questionType: "number", unit: "stk", config: price([link("EL-004", "svar")]) },
       { key: "el.stikk_dobbel", prompt: "Stikkontakt Dobbel, stk", questionType: "number", unit: "stk", config: price([link("EL-006", "svar")]) },
-      { key: "el.stikk_enkel", prompt: "Stikkontakt Enkel, stk", questionType: "number", unit: "stk", config: price([]) },
+      { key: "el.stikk_enkel", prompt: "Stikkontakt Enkel, stk", questionType: "number", unit: "stk", helpText: "Samme pris som dobbel stikkontakt.", config: price([link("EL-006", "svar")]) },
       { key: "el.vifte", prompt: "Vifte, stk", questionType: "number", unit: "stk", config: price([link("EL-008", "svar")]) },
-      { key: "el.vvb", prompt: "Tilkobling av VVB?", questionType: "yes_no", config: price([], { ignoreValues: ["nei"] }) },
+      { key: "el.vvb", prompt: "Tilkobling av VVB?", questionType: "yes_no", config: price([link("EL-016", "1")], { ignoreValues: ["nei"] }) },
       { key: "el.tekst", prompt: "Fritekst elektriker", questionType: "text", config: { role: "info" } },
     ],
   },
@@ -203,7 +224,7 @@ export const TILBUDSBEFARING: ChecklistSectionSpec[] = [
       { key: "ror.kald", prompt: "Vannpunkter rør i rør (kald), stk", questionType: "number", unit: "stk", config: price([link("ROR-018", "svar")]) },
       { key: "ror.varm", prompt: "Vannpunkter rør i rør (varm), stk", questionType: "number", unit: "stk", config: price([link("ROR-018", "svar")]) },
       { key: "ror.sluk", prompt: "Ekstra sluk, stk", questionType: "number", unit: "stk", config: price([link("ROR-011", "svar")]) },
-      { key: "ror.avlop50", prompt: "Ekstra 50 mm avløp, stk", questionType: "number", unit: "stk", config: price([]) },
+      { key: "ror.avlop50", prompt: "Ekstra 50 mm avløp, stk", questionType: "number", unit: "stk", config: price([link("ROR-017", "svar")]) },
       { key: "ror.vm", prompt: "Avløpstrakt og kran for vaskemaskin, stk", questionType: "number", unit: "stk", config: price([link("ROR-010", "svar")]) },
       { key: "ror.renne", prompt: "Oppgradere til rennesluk, stk", questionType: "number", unit: "stk", config: price([link("ROR-013", "svar")]) },
       {
@@ -225,6 +246,7 @@ export const TILBUDSBEFARING: ChecklistSectionSpec[] = [
           "Ny VVB 300L Connected",
           "Spillbakke",
         ],
+        helpText: "Hovedstoppekran prises manuelt for hver jobb.",
         config: price([
           link("ROR-008", "1", "Badekarskran"),
           link("ROR-021", "1", "Utekran (kald)"),
@@ -252,13 +274,14 @@ export const TILBUDSBEFARING: ChecklistSectionSpec[] = [
         prompt: "Murerarbeider som skal inkluderes",
         questionType: "multi",
         choices: ["Støping av gulv", "Nedsenk i dusj", "Helfliset bad", "Delvis flislagte vegger", "Gulvfliser med sokkel", "Gulvbelegg"],
+        helpText: "Nedsenk i dusj er inkludert uten egen prispost.",
         config: price([
           link("MUR-001", "gulvareal", "Støping av gulv"),
           link("MUR-002", "flisareal", "Helfliset bad"),
           link("MUR-008", "gulvareal", "Gulvfliser med sokkel"),
           link("MUR-013", "1", "Gulvbelegg"),
           link("MUR-014", "gulvareal", "Gulvbelegg"),
-        ], { gateChoices: ["Delvis flislagte vegger"] }),
+        ], { gateChoices: ["Delvis flislagte vegger", "Nedsenk i dusj"] }),
       },
       {
         key: "mur.delvis",
@@ -291,10 +314,20 @@ export const TILBUDSBEFARING: ChecklistSectionSpec[] = [
         questionType: "multi",
         choices: ["Sparkling og maling av himling", "Sparkling og maling av gipsede vegger", "Annet malerarbeid", "Aquapro"],
         config: price([
-          link("MAL-004", "1", "Sparkling og maling av himling"),
+          link("MAL-004", "1", "Sparkling og maling av himling", true),
           link("MAL-005", "gulvareal", "Sparkling og maling av himling"),
+          link("MAL-004", "1", "Sparkling og maling av gipsede vegger", true),
+          link("MAL-005", "gipsvegger", "Sparkling og maling av gipsede vegger"),
+          link("MAL-004", "1", "Annet malerarbeid", true),
           link("MAL-001", "1", "Aquapro"),
         ]),
+      },
+      {
+        key: "mal.annet_m2",
+        prompt: "Annet malerarbeid, m2",
+        questionType: "measurement",
+        unit: "m2",
+        config: price([link("MAL-005", "svar")], { showWhen: { itemKey: "mal.arbeid", anyOf: ["Annet malerarbeid"] } }),
       },
       {
         key: "mal.aquapro",

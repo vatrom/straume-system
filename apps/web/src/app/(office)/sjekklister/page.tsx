@@ -32,6 +32,7 @@ export default async function ChecklistsPage() {
           when: mapping.when ?? "",
           code: mapping.code,
           formula: mapping.formula,
+          once: mapping.once === true,
         })),
       };
     }),

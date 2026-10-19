@@ -742,6 +742,32 @@ export async function plannedHours(projectId: string) {
   };
 }
 
+const QUOTE_STATUSES = ["draft", "pending_approval", "internally_approved", "approved", "sent", "signed", "accepted", "rejected"] as const;
+
+export async function listQuotes(status?: string) {
+  const selected = status && (QUOTE_STATUSES as readonly string[]).includes(status) ? (status as QuoteStatus) : undefined;
+  const rows = await prisma.quote.findMany({
+    where: selected ? { status: selected } : {},
+    orderBy: { createdAt: "desc" },
+    include: {
+      deal: { select: { id: true, title: true } },
+      project: { select: { id: true, title: true } },
+    },
+  });
+  return rows.map((quote) => ({
+    id: quote.id,
+    title: quote.title,
+    revision: quote.revision,
+    status: quote.status,
+    totalIncVat: dec(quote.totalIncVat) ?? 0,
+    createdAt: quote.createdAt.toISOString(),
+    dealId: quote.dealId,
+    dealTitle: quote.deal?.title ?? null,
+    projectId: quote.projectId,
+    projectTitle: quote.project?.title ?? null,
+  }));
+}
+
 export async function quotesFor(input: { dealId?: string | null; projectId?: string | null }) {
   return prisma.quote.findMany({
     where: {

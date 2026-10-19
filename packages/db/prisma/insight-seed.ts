@@ -73,7 +73,7 @@ export async function ensureInsights(prisma: PrismaClient) {
   });
   await prisma.customField.upsert({
     where: { id: "felt-boligtype" },
-    update: { name: "Boligtype", options: HOMES },
+    update: {},
     create: { id: "felt-boligtype", key: "boligtype", name: "Boligtype", kind: "choice", options: HOMES },
   });
 
@@ -271,14 +271,14 @@ async function upsertDashboard(
 ) {
   await prisma.insightDashboard.upsert({
     where: { id: dashboardId },
-    update: { name, slug, shared: true },
+    update: {},
     create: { id: dashboardId, name, slug, ownerId: USERS.ada, shared: true },
   });
   for (let index = 0; index < tiles.length; index += 1) {
     const tile = tiles[index]!;
     await prisma.dashboardTile.upsert({
       where: { id: id(index + 1, group) },
-      update: { title: tile.title, view: tile.view, spec: tile.spec, sortOrder: index },
+      update: {},
       create: { id: id(index + 1, group), dashboardId, title: tile.title, view: tile.view, spec: tile.spec, sortOrder: index },
     });
   }

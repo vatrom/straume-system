@@ -11,9 +11,23 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Kontoret ligger på http://localhost:3000. MinIO-konsollet ligger på http://localhost:9001 (`straume` / `straume-dev-secret`). Postgres er tilgjengelig på `localhost:5432` med bruker, passord og database `straume`.
+Kontoret ligger på http://localhost:3000. Filer lagres på disk i volumet `straume-data` (`/app/.data`). Postgres er tilgjengelig på `localhost:5432` med bruker, passord og database `straume`.
 
-Første oppstart kjører migrering og seed. Seed er idempotent. `SEED_FORCE=1` kjører innsettingene på nytt.
+Første oppstart kjører migrering og seed. Senere oppstarter legger bare inn rader som mangler. De overskriver ikke faser, tekstmaler, priser eller andre felt en administrator har endret. `SEED_FORCE=1` kjører innsettingene på nytt, men lar fortsatt sannsynlighet og stagnasjonsdager på eksisterende faser stå.
+
+### Valgfri fillagring (S3)
+
+Standard er lokal disk. Tom `S3_ENDPOINT` bruker `DATA_DIR`. En S3-kompatibel tjeneste kan settes inn uten kodeendring, for eksempel [Garage](https://garagehq.deuxfleurs.fr/), [SeaweedFS](https://github.com/seaweedfs/seaweedfs) eller [RustFS](https://github.com/rustfs/rustfs). Legg tjenesten i Compose selv og sett disse variablene på `web`:
+
+```yaml
+S3_ENDPOINT: http://garage:3900
+S3_REGION: garage
+S3_BUCKET: straume
+S3_ACCESS_KEY: straume
+S3_SECRET_KEY: bytt-meg
+```
+
+Appen oppretter bøtta hvis den mangler, og bruker path-style. Nøklene og bøtta kommer fra tjenesten du kjører.
 
 ### Uten Docker
 
@@ -26,7 +40,7 @@ pnpm db:seed
 pnpm dev
 ```
 
-Tom `S3_ENDPOINT` lagrer filer på disk i `.data`.
+Tom `S3_ENDPOINT` lagrer filer på disk i `.data`. Samme variabel kobler på en S3-kompatibel tjeneste, som beskrevet over.
 
 ### Demobrukere
 

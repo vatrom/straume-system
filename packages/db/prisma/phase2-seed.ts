@@ -1,10 +1,6 @@
-import { FORMAT_PRESETS, numberedWalls, priceListFromCsv, type Sketch } from "@straume/domain";
+import { FORMAT_PRESETS, numberedWalls, type Sketch } from "@straume/domain";
 import type { PrismaClient } from "@prisma/client";
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 
-const here = dirname(fileURLToPath(import.meta.url));
 const id = (n: number, group: string) => `${group}-0000-4000-8000-${String(n).padStart(12, "0")}`;
 
 const TEMPLATES: { key: string; name: string; kind: string; tradeCode?: string; sortOrder: number; body: string }[] = [
@@ -59,19 +55,10 @@ const TEMPLATES: { key: string; name: string; kind: string; tradeCode?: string; 
 ];
 
 export async function ensurePhase2(prisma: PrismaClient) {
-  const csv = readFileSync(join(here, "data/prisposter.csv"), "utf8");
-  const priceList = priceListFromCsv(csv, { id: id(1, "30000000"), name: "Prisliste 2026", validFrom: "2026-08-11" });
-  for (const line of priceList.lines) {
-    await prisma.priceItem.updateMany({
-      where: { code: line.code },
-      data: { splitConfidence: line.splitConfidence ?? "known", splitNote: line.splitNote ?? null },
-    });
-  }
-
   for (const template of TEMPLATES) {
     await prisma.textTemplate.upsert({
       where: { key: template.key },
-      update: { name: template.name, kind: template.kind, body: template.body },
+      update: {},
       create: { ...template, tradeCode: template.tradeCode ?? null },
     });
   }
@@ -85,7 +72,7 @@ export async function ensurePhase2(prisma: PrismaClient) {
   const columnMap = FORMAT_PRESETS.csv ?? { sku: "varenummer", name: "navn", unit: "enhet", cost: "kostpris", listPrice: "veilpris" };
   await prisma.supplier.upsert({
     where: { code: "fiktiv-ror" },
-    update: { name: "Fiktiv Rør AS", format: "csv", columnMap },
+    update: {},
     create: { id: supplierId, name: "Fiktiv Rør AS", code: "fiktiv-ror", format: "csv", columnMap },
   });
   const supplier = await prisma.supplier.findUniqueOrThrow({ where: { code: "fiktiv-ror" } });
@@ -99,7 +86,7 @@ export async function ensurePhase2(prisma: PrismaClient) {
   for (const [index, product] of products.entries()) {
     const saved = await prisma.product.upsert({
       where: { supplierId_sku: { supplierId: supplier.id, sku: product.sku } },
-      update: { ...product, validFrom: new Date("2026-08-11") },
+      update: {},
       create: { id: id(index + 1, "91000000"), supplierId: supplier.id, ...product, validFrom: new Date("2026-08-11") },
     });
     productIds.set(product.sku, saved.id);
@@ -108,12 +95,7 @@ export async function ensurePhase2(prisma: PrismaClient) {
   const listId = id(1, "30000000");
   await prisma.priceItem.upsert({
     where: { code: "TOM-050" },
-    update: {
-      name: "Servantpakke med stykkliste",
-      unit: "stk",
-      splitConfidence: "known",
-      splitNote: "Materialkost summeres fra stykklisten.",
-    },
+    update: {},
     create: {
       id: "TOM-050",
       code: "TOM-050",
@@ -147,7 +129,7 @@ export async function ensurePhase2(prisma: PrismaClient) {
   for (const [index, line] of bom.entries()) {
     await prisma.bomLine.upsert({
       where: { id: line.id },
-      update: { sortOrder: index + 1, kind: line.kind, productId: line.productId, quantity: line.quantity, label: line.label, amountNok: line.amountNok },
+      update: {},
       create: { priceItemId: "TOM-050", sortOrder: index + 1, ...line },
     });
   }
@@ -200,7 +182,7 @@ async function seedFjellstien(prisma: PrismaClient) {
   });
   await prisma.room.upsert({
     where: { id: roomId },
-    update: { perimeterM: 8.5, ceilingHeightM: 2.25, floorAreaM: 4.44, sketch },
+    update: {},
     create: {
       id: roomId,
       floorId,

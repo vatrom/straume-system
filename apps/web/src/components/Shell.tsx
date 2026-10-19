@@ -7,6 +7,7 @@ import { usePathname, useRouter } from "next/navigation";
 const links: [string, string][] = [
   ["/pipeline", "Salgsavtaler"],
   ["/avtaler/liste", "Avtaleliste"],
+  ["/tilbud", "Tilbud"],
   ["/innsikt", "Innsikt"],
   ["/prosjekter/tavle", "Prosjekttavle"],
   ["/prosjekter", "Prosjektliste"],

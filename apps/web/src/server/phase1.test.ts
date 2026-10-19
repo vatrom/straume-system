@@ -1,4 +1,5 @@
 import { prisma } from "@straume/db";
+import { repeatSeed } from "../../../../packages/db/prisma/seed";
 import { afterAll, describe, expect, it } from "vitest";
 import { isoDate } from "./dates";
 import { addStage, createDeal, createPipeline, createProjectFromDeal, dealsForBoard, editStage, orderStages, removePipeline, removeStage, winDeal } from "./crm";
@@ -188,6 +189,29 @@ describe("fase 1 mot databasen", () => {
     if (!without.project) throw new Error("Mangler prosjekt");
     extraProjects.push(without.project.id);
     expect(without.project.plannedStartDate).toBeNull();
+  });
+
+  it("beholder admin-endringer når seed kjøres på nytt", async () => {
+    const stage = await prisma.stage.findFirstOrThrow({ where: { name: "Befaring avtalt" } });
+    const template = await prisma.textTemplate.findUniqueOrThrow({ where: { key: "intro" } });
+    const previous = { probability: Number(stage.probability), rottenDays: stage.rottenDays, body: template.body };
+    try {
+      await prisma.stage.update({ where: { id: stage.id }, data: { probability: 55, rottenDays: 3 } });
+      await prisma.textTemplate.update({ where: { key: "intro" }, data: { body: "Admin endret innledningen." } });
+      await prisma.$executeRaw`UPDATE "Stage" SET probability = 40, "rottenDays" = 14 WHERE name = 'Befaring avtalt' AND probability = 100`;
+      await repeatSeed();
+      const keptStage = await prisma.stage.findUniqueOrThrow({ where: { id: stage.id } });
+      const keptTemplate = await prisma.textTemplate.findUniqueOrThrow({ where: { key: "intro" } });
+      expect(Number(keptStage.probability)).toBe(55);
+      expect(keptStage.rottenDays).toBe(3);
+      expect(keptTemplate.body).toBe("Admin endret innledningen.");
+    } finally {
+      await prisma.stage.update({
+        where: { id: stage.id },
+        data: { probability: previous.probability, rottenDays: previous.rottenDays },
+      });
+      await prisma.textTemplate.update({ where: { key: "intro" }, data: { body: previous.body } });
+    }
   });
 
   it("beholder fasenavn i historikken og summerer vunne avtaler", async () => {

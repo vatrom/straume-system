@@ -129,14 +129,6 @@ const checklist: { tradeCode: string; name: string; items: { prompt: string; que
 
 async function ensureDealProjectSplit() {
   const day = (iso: string) => new Date(`${iso}T12:00:00.000Z`);
-  await prisma.projectPhase.updateMany({
-    where: { id: PHASE.mottatt, rottenDays: null },
-    data: { rottenDays: 21 },
-  });
-  await prisma.project.updateMany({
-    where: { id: id(2, "60000000"), plannedEndDate: null },
-    data: { plannedEndDate: day("2026-10-01"), phaseEnteredAt: day("2026-09-01") },
-  });
   const personId = id(7, "40000000");
   await prisma.person.upsert({
     where: { id: personId },
@@ -268,14 +260,8 @@ async function ensureDealProjectSplit() {
 async function main() {
   const done = await prisma.appSetting.findUnique({ where: { key: "seed_complete" } });
   if (done && process.env.SEED_FORCE !== "1") {
-    await prisma.stage.updateMany({
-      where: { id: STAGE.befaring },
-      data: { probability: 40, rottenDays: 14 },
-    });
-    await ensureDealProjectSplit();
-    await ensureInsights(prisma);
-    await ensurePhase2(prisma);
-    console.log("Seed finnes allerede. Fase 2-data er sikret. Sett SEED_FORCE=1 for full upsert.");
+    await repeatSeed();
+    console.log("Seed finnes allerede. Manglende rader er sikret, uten å overskrive endringer. Sett SEED_FORCE=1 for full upsert.");
     return;
   }
   const password = process.env.SEED_PASSWORD ?? (process.env.NODE_ENV === "production" ? "" : "bytt-meg-lokalt");
@@ -362,7 +348,11 @@ async function main() {
     { id: STAGE.forhandling, pipelineId: PIPE.borett, name: "Forhandling startet", sortOrder: 4, probability: 40, rottenDays: null },
   ];
   for (const stage of stages) {
-    await prisma.stage.upsert({ where: { id: stage.id }, update: stage, create: stage });
+    await prisma.stage.upsert({
+      where: { id: stage.id },
+      update: { name: stage.name, sortOrder: stage.sortOrder, pipelineId: stage.pipelineId },
+      create: stage,
+    });
   }
 
   await prisma.projectBoard.upsert({
@@ -402,7 +392,7 @@ async function main() {
   for (const trade of TRADES) {
     await prisma.trade.upsert({
       where: { id: trade.code },
-      update: { name: trade.name, code: trade.code, subcontractor: trade.code === "elektriker" },
+      update: { name: trade.name, code: trade.code },
       create: { id: trade.code, code: trade.code, name: trade.name, sortOrder: trade.sort, subcontractor: trade.code === "elektriker" },
     });
   }
@@ -809,9 +799,7 @@ async function main() {
     });
   }
 
-  await ensureDealProjectSplit();
-  await ensureInsights(prisma);
-  await ensurePhase2(prisma);
+  await repeatSeed();
 
   await prisma.appSetting.upsert({
     where: { key: "seed_complete" },
@@ -821,11 +809,21 @@ async function main() {
   console.log("Seed fullført. Demo-brukere bruker passordet fra SEED_PASSWORD.");
 }
 
-main()
-  .catch((error) => {
-    console.error(error);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+/** Kjøres ved hver oppstart når seed allerede er lagt inn. Oppretter bare det som mangler. */
+export async function repeatSeed() {
+  await ensureDealProjectSplit();
+  await ensureInsights(prisma);
+  await ensurePhase2(prisma);
+}
+
+const invokedDirectly = process.argv[1]?.endsWith("seed.ts") || process.argv[1]?.endsWith("seed.js");
+if (invokedDirectly) {
+  main()
+    .catch((error) => {
+      console.error(error);
+      process.exit(1);
+    })
+    .finally(async () => {
+      await prisma.$disconnect();
+    });
+}

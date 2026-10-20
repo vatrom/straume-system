@@ -1,9 +1,13 @@
 import {
+  DomainError,
   draftPrompt,
   mockDraft,
   type AiDraftShape,
   type DraftRequest,
 } from "@straume/domain";
+
+/** Verifisert modell for denne kontoen. claude-sonnet-4-5 svarer 404. */
+export const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-5-5";
 
 const inputRate = () => Number(process.env.ANTHROPIC_INPUT_USD_PER_MTOK ?? 3);
 const outputRate = () => Number(process.env.ANTHROPIC_OUTPUT_USD_PER_MTOK ?? 15);
@@ -56,8 +60,26 @@ const TOOL = {
 
 function asDraft(value: unknown): AiDraftShape {
   const draft = value as AiDraftShape;
-  if (!draft || !Array.isArray(draft.lines)) throw new Error("Modellen returnerte ikke et utkast");
+  if (!draft || !Array.isArray(draft.lines)) throw aiFailure("Claude returnerte ikke et utkast");
   return draft;
+}
+
+function aiFailure(detail: string): DomainError {
+  const text = detail.replace(/\s+/g, " ").trim().slice(0, 240);
+  return new DomainError(`AI-utkast feilet: ${text}`);
+}
+
+function claudeErrorDetail(status: number, raw: string, model: string): string {
+  let message = "";
+  try {
+    const parsed = JSON.parse(raw) as { error?: { message?: string } };
+    message = parsed.error?.message?.trim() ?? "";
+  } catch {
+    message = "";
+  }
+  if (status === 404) return message ? `modellen ${model} finnes ikke. ${message}` : `modellen ${model} finnes ikke`;
+  if (status === 401 || status === 403) return message ? `Claude avviste nøkkelen. ${message}` : "Claude avviste nøkkelen";
+  return message ? `Claude svarte ${status}. ${message}` : `Claude svarte ${status}`;
 }
 
 export async function completeDraft(request: DraftRequest): Promise<DraftCompletion> {
@@ -77,29 +99,39 @@ export async function completeDraft(request: DraftRequest): Promise<DraftComplet
       costUsd: 0,
     };
   }
-  const model = process.env.ANTHROPIC_MODEL?.trim() || "claude-sonnet-4-5";
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": key,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 4000,
-      system: prompt.system,
-      tools: [TOOL],
-      tool_choice: { type: "tool", name: TOOL.name },
-      messages: [{ role: "user", content: prompt.user }],
-    }),
-  });
+  const model = process.env.ANTHROPIC_MODEL?.trim() || DEFAULT_ANTHROPIC_MODEL;
+  let response: Response;
+  try {
+    response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 4000,
+        system: prompt.system,
+        tools: [TOOL],
+        tool_choice: { type: "tool", name: TOOL.name },
+        messages: [{ role: "user", content: prompt.user }],
+      }),
+    });
+  } catch {
+    throw aiFailure("fikk ikke kontakt med Claude");
+  }
   const raw = await response.text();
-  if (!response.ok) throw new Error(`Claude svarte ${response.status}`);
-  const body = JSON.parse(raw) as {
+  if (!response.ok) throw aiFailure(claudeErrorDetail(response.status, raw, model));
+  let body: {
     content?: { type: string; input?: unknown }[];
     usage?: { input_tokens?: number; output_tokens?: number };
   };
+  try {
+    body = JSON.parse(raw) as typeof body;
+  } catch {
+    throw aiFailure("Claude svarte med ugyldig data");
+  }
   const tool = body.content?.find((block) => block.type === "tool_use");
   const inputTokens = body.usage?.input_tokens ?? 0;
   const outputTokens = body.usage?.output_tokens ?? 0;

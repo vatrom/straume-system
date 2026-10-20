@@ -10,14 +10,20 @@ export function ChangeDraftForm({ projectId }: { projectId: string }) {
       onSubmit={async (event) => {
         event.preventDefault();
         const description = String(new FormData(event.currentTarget).get("description") ?? "");
-        const response = await fetch(`/api/projects/${projectId}/changes/draft`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ description }),
-        });
+        let response: Response;
+        try {
+          response = await fetch(`/api/projects/${projectId}/changes/draft`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ description }),
+          });
+        } catch {
+          setMessage("AI-utkast feilet: fikk ikke kontakt med serveren");
+          return;
+        }
         const data = await response.json().catch(() => ({}));
         if (!response.ok) {
-          setMessage(data.error ?? "Feil");
+          setMessage(typeof data.error === "string" && data.error.trim() ? data.error : "AI-utkast feilet: ukjent feil");
           return;
         }
         setMessage(`Utkast priset til ${Number(data.totalIncVat).toLocaleString("nb-NO")} kr inkl. mva. ${(data.flags ?? []).join(" ")}`);

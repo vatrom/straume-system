@@ -6,8 +6,8 @@ import {
   type DraftRequest,
 } from "@straume/domain";
 
-/** Verifisert modell for denne kontoen. claude-sonnet-4-5 svarer 404. */
-export const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-5-5";
+/** Produksjon bruker claude-sonnet-5. claude-sonnet-4-5 svarer 404. claude-sonnet-5-5 avviser tvunget tool_choice. */
+export const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-5";
 
 const inputRate = () => Number(process.env.ANTHROPIC_INPUT_USD_PER_MTOK ?? 3);
 const outputRate = () => Number(process.env.ANTHROPIC_OUTPUT_USD_PER_MTOK ?? 15);
@@ -82,6 +82,45 @@ function claudeErrorDetail(status: number, raw: string, model: string): string {
   return message ? `Claude svarte ${status}. ${message}` : `Claude svarte ${status}`;
 }
 
+function toolChoiceUnsupported(status: number, raw: string): boolean {
+  if (status !== 400) return false;
+  const text = raw.toLowerCase();
+  return text.includes("tool_choice") && (text.includes("not supported") || text.includes("unsupported"));
+}
+
+type ClaudeBody = {
+  content?: { type: string; input?: unknown }[];
+  usage?: { input_tokens?: number; output_tokens?: number };
+};
+
+async function callClaude(
+  key: string,
+  model: string,
+  prompt: { system: string; user: string },
+  toolChoice: { type: "tool"; name: string } | { type: "auto" },
+): Promise<Response> {
+  const system =
+    toolChoice.type === "auto"
+      ? `${prompt.system} You MUST call the tool ${TOOL.name}. Ikke svar med vanlig tekst.`
+      : prompt.system;
+  return fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": key,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 4000,
+      system,
+      tools: [TOOL],
+      tool_choice: toolChoice,
+      messages: [{ role: "user", content: prompt.user }],
+    }),
+  });
+}
+
 export async function completeDraft(request: DraftRequest): Promise<DraftCompletion> {
   const prompt = draftPrompt(request);
   const packed = `${prompt.system}\n\n${prompt.user}`;
@@ -102,37 +141,28 @@ export async function completeDraft(request: DraftRequest): Promise<DraftComplet
   const model = process.env.ANTHROPIC_MODEL?.trim() || DEFAULT_ANTHROPIC_MODEL;
   let response: Response;
   try {
-    response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 4000,
-        system: prompt.system,
-        tools: [TOOL],
-        tool_choice: { type: "tool", name: TOOL.name },
-        messages: [{ role: "user", content: prompt.user }],
-      }),
-    });
+    response = await callClaude(key, model, prompt, { type: "tool", name: TOOL.name });
   } catch {
     throw aiFailure("fikk ikke kontakt med Claude");
   }
-  const raw = await response.text();
+  let raw = await response.text();
+  if (toolChoiceUnsupported(response.status, raw)) {
+    try {
+      response = await callClaude(key, model, prompt, { type: "auto" });
+    } catch {
+      throw aiFailure("fikk ikke kontakt med Claude");
+    }
+    raw = await response.text();
+  }
   if (!response.ok) throw aiFailure(claudeErrorDetail(response.status, raw, model));
-  let body: {
-    content?: { type: string; input?: unknown }[];
-    usage?: { input_tokens?: number; output_tokens?: number };
-  };
+  let body: ClaudeBody;
   try {
-    body = JSON.parse(raw) as typeof body;
+    body = JSON.parse(raw) as ClaudeBody;
   } catch {
     throw aiFailure("Claude svarte med ugyldig data");
   }
   const tool = body.content?.find((block) => block.type === "tool_use");
+  if (!tool) throw aiFailure(`Claude kalte ikke verktøyet ${TOOL.name}`);
   const inputTokens = body.usage?.input_tokens ?? 0;
   const outputTokens = body.usage?.output_tokens ?? 0;
   return {

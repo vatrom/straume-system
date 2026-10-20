@@ -106,7 +106,7 @@ Elektriker er underleverandør. Postene har fast salgspris, eller innkjøpspris 
 
 Fagrekkefølgen følger tilbudsmalen: riving, tømrer, elektriker, rørlegger, murer/flis, maler. Administrator endrer den under Innstillinger. Samme rekkefølge brukes i tilbudstekst, PDF og den publiserte sjekklisten i befaringsappen.
 
-Uten `ANTHROPIC_API_KEY` lager «Lag tilbudsutkast» et deterministisk utkast fra befaring, sjekkliste og mengdeformler. Med nøkkel kalles Claude med tvunget verktøy `lag_tilbudsutkast`. Standardmodell er `claude-sonnet-5-5` (`ANTHROPIC_MODEL`). `claude-sonnet-4-5` svarer 404 for denne kontoen. Modellen velger koder og mengder og skriver tekst. Motoren setter prisen. Prompt og svar logges på tilbudet, med kost ut fra `ANTHROPIC_INPUT_USD_PER_MTOK` (standard 3) og `ANTHROPIC_OUTPUT_USD_PER_MTOK` (standard 15). Interne notater sendes bare merket som interne, og kundetekst som inneholder dem blir renset. Feiler kallet (ukjent modell, nøkkel eller nett), vises «AI-utkast feilet: …» i kontoret. Deterministisk utkast brukes bare når nøkkelen mangler.
+Uten `ANTHROPIC_API_KEY` lager «Lag tilbudsutkast» et deterministisk utkast fra befaring, sjekkliste og mengdeformler. Med nøkkel kalles Claude med tvunget verktøy `lag_tilbudsutkast`. Standardmodell er `claude-sonnet-5` (`ANTHROPIC_MODEL`). `claude-sonnet-4-5` svarer 404 for denne kontoen. `claude-sonnet-5-5` og `claude-opus-5-5` avviser tvunget `tool_choice`. Da prøver kallet én gang til med `tool_choice` `auto` og en instruks om at verktøyet må brukes. Samme vei brukes for endringsordre. Mangler `tool_use` i svaret, vises «AI-utkast feilet: …». Modellen velger koder og mengder og skriver tekst. Motoren setter prisen. Prompt og svar logges på tilbudet, med kost ut fra `ANTHROPIC_INPUT_USD_PER_MTOK` (standard 3) og `ANTHROPIC_OUTPUT_USD_PER_MTOK` (standard 15). Interne notater sendes bare merket som interne, og kundetekst som inneholder dem blir renset. Feiler kallet (ukjent modell, nøkkel eller nett), vises «AI-utkast feilet: …» i kontoret. Deterministisk utkast brukes bare når nøkkelen mangler.
 
 Tilbudet følger utkast → til godkjenning → godkjent → sendt → akseptert eller avslått. Hvem som kan godkjenne, styres av innstillingen `quote_approver_roles` (standard administrator og kontor). Aksept kopierer totalsummen til avtalen og prosjektet. Ny revisjon er et nytt utkast. E-post skrives til `MailLog` og sendes ikke.
 
@@ -117,7 +117,7 @@ En prispost kan ha en stykkliste: fri sum, eller mengde av et produkt. Produktka
 ```bash
 # valgfritt, ellers brukes mock
 ANTHROPIC_API_KEY=
-ANTHROPIC_MODEL=claude-sonnet-5-5
+ANTHROPIC_MODEL=claude-sonnet-5
 ```
 
 ## Avvik fra arkitekturplanen

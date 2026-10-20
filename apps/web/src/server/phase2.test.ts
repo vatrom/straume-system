@@ -4,7 +4,7 @@ import { repeatSeed } from "../../../../packages/db/prisma/seed";
 import { afterAll, describe, expect, it } from "vitest";
 import { applyPriceFile } from "./catalog";
 import { priceListView } from "./price-admin";
-import { createQuoteDraft, transitionQuote } from "./quotes";
+import { createQuoteDraft, quotePdf, transitionQuote } from "./quotes";
 
 const admin = { id: "00000000-0000-4000-8000-000000000001", role: "admin", name: "Ada Berg" };
 const seller = { id: "00000000-0000-4000-8000-000000000002", role: "selger", name: "Noah Lien" };
@@ -28,6 +28,14 @@ describe("fase 2 mot databasen", () => {
     await prisma.project.update({ where: { id: havneveien }, data: { contractSumNok: 512000 } });
     await prisma.deal.update({ where: { id: havneDeal }, data: { valueNok: 512000 } });
     await prisma.$disconnect();
+  });
+
+  it("bygger kundens PDF uten revisjon og poster", async () => {
+    const file = await quotePdf("90000000-0000-4000-8000-000000000009");
+    expect(file.name.startsWith("Tilbud-")).toBe(true);
+    expect(file.name.endsWith(".pdf")).toBe(true);
+    expect(file.body.subarray(0, 5).toString()).toBe("%PDF-");
+    expect(file.body.toString("latin1")).not.toContain("Sum eks. mva");
   });
 
   it("holder interne notater ute av kundeteksten", async () => {

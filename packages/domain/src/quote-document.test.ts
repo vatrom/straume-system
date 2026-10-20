@@ -124,6 +124,31 @@ describe("tilbudsdokument fra malen", () => {
     expect(doc.customerText).not.toContain("badersomplater");
     expect(doc.customerText).not.toContain(AI_SUGGESTION_HEADING);
     expect(MAL_BLOCKS.some((item) => item.body.includes("badersomplater"))).toBe(false);
+    const tomrer = doc.sections.find((section) => section.key === "tomrer");
+    expect(tomrer?.blocks.some((block) => block.kind === "reservation" && block.role === "reservation")).toBe(true);
+    expect(tomrer?.pageBreakBefore).toBe(false);
+    const products = doc.sections.find((section) => section.key === "elektriker")?.blocks.find((block) => block.role === "products");
+    expect(products?.items).toEqual([
+      { description: "Termostat, SG", quantity: "1", unit: "stk" },
+      { description: "Downlights LED, Junistar Eco hvit", quantity: "6", unit: "stk" },
+    ]);
+    expect(JSON.stringify(products?.items ?? [])).not.toMatch(/pris|kr/i);
+    const plumber = doc.sections.find((section) => section.key === "rorlegger")?.blocks.find((block) => block.role === "products");
+    expect(plumber?.items?.[0]).toEqual({ description: "Vannpunkt kald, rør i rør", quantity: "4", unit: "stk" });
+    expect(doc.sections.find((section) => section.key === "spesifikasjoner")?.pageBreakBefore).toBe(true);
+    expect(doc.sections.find((section) => section.key === "kontrakt")?.pageBreakBefore).toBe(true);
+    expect(doc.sections.find((section) => section.key === "kontrakt")?.blocks[0]?.role).toBe("signature");
+    expect(doc.intro.find((block) => block.role === "contents")?.paragraphs[0]).toBe("Tilbudet inneholder følgende poster:");
+    expect(doc.contents.map((item) => `${item.number}. ${item.title}`)).toContain("10. Kontraktsdel");
+    const price = doc.sections.find((section) => section.key === "pristilbud")?.blocks[0];
+    expect(price?.role).toBe("price");
+    expect(price?.priceAmount).toBe("Kr 499 999,-");
+    expect(price?.paragraphs).toContain("Alle beløp er inkludert mva.");
+    for (const sentence of FORBEHOLD) {
+      const inTrade = doc.sections.some((section) => section.blocks.some((block) => block.text.includes(sentence) || block.paragraphs.some((paragraph) => paragraph.includes(sentence))));
+      const inIntro = doc.intro.some((block) => block.text.includes(sentence));
+      expect(inTrade || inIntro).toBe(true);
+    }
   });
 
   it("bruker Fibo-avsnittet som alternativ til våtromsplater", () => {

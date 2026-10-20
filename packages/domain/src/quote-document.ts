@@ -54,12 +54,55 @@ export type DocumentLine = {
   lineSumExVat: number;
 };
 
+export type QuoteProductItem = {
+  description: string;
+  quantity: string;
+  unit: string;
+};
+
+/** Hvordan en blokk skal se ut i kundens PDF. Teksten i customerText er uendret. */
+export type QuoteBlockRole = "paragraph" | "reservation" | "contents" | "products" | "price" | "terms" | "signature" | "signoff";
+
+export type QuoteDocumentBlock = {
+  key: string;
+  kind: QuoteTextBlock["kind"] | "contents";
+  role: QuoteBlockRole;
+  text: string;
+  paragraphs: string[];
+  items?: QuoteProductItem[];
+  /** Beløpet på pristilbudslinjen, for eksempel «Kr 499 999,-». */
+  priceAmount?: string;
+};
+
+export type QuoteDocumentSection = {
+  number: number;
+  key: string;
+  title: string;
+  pageBreakBefore: boolean;
+  blocks: QuoteDocumentBlock[];
+};
+
 export type ComposedQuoteDocument = {
   customerText: string;
   reservations: string;
-  sections: { number: number; key: string; title: string }[];
+  intro: QuoteDocumentBlock[];
+  contents: { number: number; title: string }[];
+  sections: QuoteDocumentSection[];
   usedBlockKeys: string[];
 };
+
+/** Standardverdier fra Tilbud_MAL. Stedet og bunnteksten kan endres under Innstillinger. */
+export const DEFAULT_QUOTE_LETTERHEAD = {
+  place: "Bergen",
+  legalName: "Straume Våtrom AS",
+  orgNr: "911838346",
+  address: "Idrettsvegen 93, 5353 Straume",
+  web: "www.straumevaatrom.no",
+  phone: "55 50 01 00",
+  email: "vatrom@straumegruppen.no",
+};
+
+export type QuoteLetterhead = typeof DEFAULT_QUOTE_LETTERHEAD;
 
 type SectionSpec = { key: string; title: string; trade: string | null };
 
@@ -580,11 +623,22 @@ function formatQty(quantity: number): string {
   return quantity.toLocaleString("nb-NO", { maximumFractionDigits: 2 });
 }
 
-function productLines(lines: DocumentLine[], trade: string): string[] {
+function productItems(lines: DocumentLine[], trade: string): QuoteProductItem[] {
   return lines
     .filter((line) => line.included && !line.internal && line.tradeCode === trade && line.quantity > 0)
     .filter((line) => !line.description.startsWith("Må prises manuelt"))
-    .map((line) => `${line.description} ${formatQty(line.quantity)} ${line.unit}`.trim());
+    .map((line) => ({ description: line.description, quantity: formatQty(line.quantity), unit: line.unit }));
+}
+
+function productLines(lines: DocumentLine[], trade: string): string[] {
+  return productItems(lines, trade).map((item) => `${item.description} ${item.quantity} ${item.unit}`.trim());
+}
+
+function paragraphsOf(text: string): string[] {
+  return text
+    .split(/\n\n/)
+    .map((part) => part.trim())
+    .filter(Boolean);
 }
 
 function windowFields(answers: DocumentAnswer[]): { size: string; glass: string } {
@@ -647,6 +701,68 @@ export function composeQuoteDocument(input: {
   const contents = ["Tilbudet inneholder følgende poster:", "", ...sections.map((section) => `${section.number}. ${section.title}`)].join("\n");
   const intro = [introBody("intro.takk"), contents, ...introKeys.slice(1).map(introBody)].filter(Boolean).join("\n\n");
 
+  const blockOf = (item: QuoteTextBlock, section: (typeof sections)[number]): QuoteDocumentBlock | null => {
+    if (item.kind === "generated") {
+      const trade = item.include.trade ?? section.trade ?? "";
+      const items = productItems(input.lines, trade);
+      const lines = productLines(input.lines, trade);
+      return { key: item.key, kind: "generated", role: "products", text: lines.join("\n\n"), paragraphs: lines, items };
+    }
+    const text = fill(item.body);
+    if (!text) return null;
+    if (item.key === "pristilbud.sum") {
+      const rows = text
+        .split("\n")
+        .map((row) => row.trim())
+        .filter(Boolean);
+      const first = rows[0] ?? "";
+      return {
+        key: item.key,
+        kind: item.kind,
+        role: "price",
+        text,
+        paragraphs: rows.slice(1),
+        priceAmount: first.replace(/^Sum Investering\s*/, "").trim(),
+      };
+    }
+    const role: QuoteBlockRole =
+      item.key === "kontrakt.del" ? "signature" : item.section === "spesifikasjoner" ? "terms" : item.kind === "reservation" ? "reservation" : "paragraph";
+    return { key: item.key, kind: item.kind, role, text, paragraphs: paragraphsOf(text) };
+  };
+
+  const introBlocks: QuoteDocumentBlock[] = [];
+  const thanks = introBody("intro.takk");
+  if (thanks) introBlocks.push({ key: "intro.takk", kind: "fixed", role: "paragraph", text: thanks, paragraphs: paragraphsOf(thanks) });
+  introBlocks.push({
+    key: "intro.innhold",
+    kind: "contents",
+    role: "contents",
+    text: contents,
+    paragraphs: ["Tilbudet inneholder følgende poster:"],
+  });
+  for (const key of introKeys.slice(1)) {
+    const text = introBody(key);
+    if (!text) continue;
+    introBlocks.push({
+      key,
+      kind: "fixed",
+      role: key === "intro.hilsen" ? "signoff" : "paragraph",
+      text,
+      paragraphs: paragraphsOf(text),
+    });
+  }
+
+  const documentSections: QuoteDocumentSection[] = sections.map((section) => ({
+    number: section.number,
+    key: section.key,
+    title: section.title,
+    pageBreakBefore: section.key === "spesifikasjoner" || section.key === "kontrakt",
+    blocks: section.blocks.flatMap((item) => {
+      const block = blockOf(item, section);
+      return block ? [block] : [];
+    }),
+  }));
+
   const rendered = sections.map((section) => {
     const parts: string[] = [`${section.number}. ${section.title}`];
     for (const item of section.blocks) {
@@ -672,7 +788,9 @@ export function composeQuoteDocument(input: {
   return {
     customerText: [intro, ...rendered].filter(Boolean).join("\n\n"),
     reservations,
-    sections: sections.map((section) => ({ number: section.number, key: section.key, title: section.title })),
+    intro: introBlocks,
+    contents: sections.map((section) => ({ number: section.number, title: section.title })),
+    sections: documentSections,
     usedBlockKeys: chosen.map((item) => item.key),
   };
 }

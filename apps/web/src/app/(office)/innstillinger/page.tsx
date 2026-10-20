@@ -1,5 +1,6 @@
 import { currentUser } from "@/server/auth";
 import { listOptions } from "@/server/crm";
+import { quoteLetterhead } from "@/server/text-blocks";
 import { listTrades } from "@/server/trades";
 import { prisma } from "@straume/db";
 import { redirect } from "next/navigation";
@@ -16,6 +17,7 @@ export default async function SettingsPage() {
     paymentFinishPercent: Number((await prisma.appSetting.findUnique({ where: { key: "quote_payment_finish_percent" } }))?.value ?? 30),
     paymentDueDays: Number((await prisma.appSetting.findUnique({ where: { key: "quote_payment_due_days" } }))?.value ?? 10),
   };
+  const letterhead = await quoteLetterhead();
   const users = user.role === "admin" ? await prisma.user.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, email: true, role: true, active: true } }) : [];
   const options = user.role === "admin" ? await listOptions() : [];
   const trades = await listTrades();
@@ -27,7 +29,7 @@ export default async function SettingsPage() {
           <p className="muted">Winner-mottaker, fagrekkefølge, brukere og valglister. E-post logges lokalt og sendes ikke ut.</p>
         </div>
       </div>
-      <SettingsForms winnerEmail={winner?.value ?? ""} approverRoles={(approvers?.value ?? "admin,kontor").split(",")} isAdmin={user.role === "admin"} users={users} terms={terms} trades={trades} lists={options.map((list) => ({ key: list.key, name: list.name, items: list.items.map((item) => ({ id: item.id, label: item.label, active: item.active })) }))} />
+      <SettingsForms winnerEmail={winner?.value ?? ""} approverRoles={(approvers?.value ?? "admin,kontor").split(",")} isAdmin={user.role === "admin"} users={users} terms={terms} letterhead={letterhead} trades={trades} lists={options.map((list) => ({ key: list.key, name: list.name, items: list.items.map((item) => ({ id: item.id, label: item.label, active: item.active })) }))} />
     </>
   );
 }

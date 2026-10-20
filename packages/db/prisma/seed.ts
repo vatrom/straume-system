@@ -15,6 +15,7 @@ for (const file of [join(here, "../../../.env"), join(here, "../../../.env.local
   }
 }
 import {
+  DEFAULT_QUOTE_LETTERHEAD,
   DEFAULT_TRADE_RATES,
   numberedWalls,
   priceListFromCsv,
@@ -718,7 +719,24 @@ export async function repeatSeed() {
   await ensureTilbudsbefaring();
   await ensureVidarPrisfelt();
   await ensureTextBlocks(prisma);
+  await ensureQuoteLetterhead();
   await ensureDemoBefaring(prisma);
+}
+
+/** Oppretter bare manglende nøkler, så en redigert bunntekst ikke skrives over. */
+async function ensureQuoteLetterhead() {
+  const rows: [string, string][] = [
+    ["quote_place", DEFAULT_QUOTE_LETTERHEAD.place],
+    ["quote_company_name", DEFAULT_QUOTE_LETTERHEAD.legalName],
+    ["quote_company_org", DEFAULT_QUOTE_LETTERHEAD.orgNr],
+    ["quote_company_address", DEFAULT_QUOTE_LETTERHEAD.address],
+    ["quote_company_web", DEFAULT_QUOTE_LETTERHEAD.web],
+    ["quote_company_phone", DEFAULT_QUOTE_LETTERHEAD.phone],
+    ["quote_company_email", DEFAULT_QUOTE_LETTERHEAD.email],
+  ];
+  for (const [key, value] of rows) {
+    await prisma.appSetting.upsert({ where: { key }, update: {}, create: { key, value } });
+  }
 }
 
 async function writeChecklistVersion(versionId: string) {

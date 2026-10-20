@@ -9,7 +9,7 @@ import { activateList, addItem, adjustComponentVersion, adjustPriceList, archive
 import { listTrades, reorderTrades, setTradeSubcontractor } from "./trades";
 import { applyPriceFile, itemBom, listProducts, listSuppliers, previewPriceFile, saveItemBom, saveSupplier } from "./catalog";
 import { addQuoteLine, createChangeDraft, createQuoteDraft, decideChange, emailQuote, listTemplates, plannedHours, quotePdf, quoteView, quotesFor, removeQuoteLine, reviseQuote, saveTemplate, transitionQuote, updateQuote } from "./quotes";
-import { publishTextBlocks, saveQuoteTerms, saveTextBlock, textBlockEditor } from "./text-blocks";
+import { publishTextBlocks, saveQuoteLetterhead, saveQuoteTerms, saveTextBlock, textBlockEditor } from "./text-blocks";
 import { dashboardView, deleteGoal, deleteReport, drilldown, exportInsights, goalBoard, insightMeta, queryInsights, saveGoal, saveReport, setPeerVisibility, toCsv, toExcelXml } from "./insights";
 import { addChange, addDocument, addPhase, customerView, dashboard, editChange, editPhase, listBoards, moveProject, orderPhases, projectDetail, removePhase, roomSketchFile, sendWinner, updateProject } from "./projects";
 import { ensureDealInspection, inspectionPdf, saveInspectionAnswers } from "./inspections";
@@ -365,6 +365,10 @@ async function dispatch(req: Request, slug: string[], user: SessionUser): Promis
     if (!body.winnerEmail.includes("@")) throw new DomainError("E-postadressen er ugyldig");
     await prisma.appSetting.upsert({ where: { key: "winner_email" }, update: { value: body.winnerEmail.trim() }, create: { key: "winner_email", value: body.winnerEmail.trim() } });
     return json({ ok: true }, 200, req);
+  }
+  if (a === "settings" && b === "letterhead" && method === "PUT") {
+    const body = await readJson<{ place: string; legalName: string; orgNr: string; address: string; web: string; phone: string; email: string }>(req);
+    return json(await saveQuoteLetterhead(user, body), 200, req);
   }
   if (a === "settings" && b === "terms" && method === "PUT") {
     const body = await readJson<{ validDays: number; paymentStartPercent: number; paymentFinishPercent: number; paymentDueDays: number }>(req);

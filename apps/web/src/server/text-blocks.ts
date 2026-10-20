@@ -1,12 +1,14 @@
 import { prisma } from "@straume/db";
 import {
   asBlockInclude,
+  DEFAULT_QUOTE_LETTERHEAD,
   DEFAULT_QUOTE_TERMS,
   describeBlockLink,
   DOCUMENT_SECTIONS,
   DomainError,
   MAL_BLOCKS,
   type BlockInclude,
+  type QuoteLetterhead,
   type QuoteTextBlock,
 } from "@straume/domain";
 import type { Prisma } from "@straume/db";
@@ -75,6 +77,62 @@ export async function quoteTerms() {
     paymentFinishPercent: read("quote_payment_finish_percent", DEFAULT_QUOTE_TERMS.paymentFinishPercent),
     paymentDueDays: read("quote_payment_due_days", DEFAULT_QUOTE_TERMS.paymentDueDays),
   };
+}
+
+const LETTERHEAD = [
+  ["quote_place", "place"],
+  ["quote_company_name", "legalName"],
+  ["quote_company_org", "orgNr"],
+  ["quote_company_address", "address"],
+  ["quote_company_web", "web"],
+  ["quote_company_phone", "phone"],
+  ["quote_company_email", "email"],
+] as const;
+
+export async function quoteLetterhead(): Promise<QuoteLetterhead> {
+  const rows = await prisma.appSetting.findMany({ where: { key: { in: LETTERHEAD.map(([key]) => key) } } });
+  const read = (key: string, fallback: string) => rows.find((row) => row.key === key)?.value?.trim() || fallback;
+  return {
+    place: read("quote_place", DEFAULT_QUOTE_LETTERHEAD.place),
+    legalName: read("quote_company_name", DEFAULT_QUOTE_LETTERHEAD.legalName),
+    orgNr: read("quote_company_org", DEFAULT_QUOTE_LETTERHEAD.orgNr),
+    address: read("quote_company_address", DEFAULT_QUOTE_LETTERHEAD.address),
+    web: read("quote_company_web", DEFAULT_QUOTE_LETTERHEAD.web),
+    phone: read("quote_company_phone", DEFAULT_QUOTE_LETTERHEAD.phone),
+    email: read("quote_company_email", DEFAULT_QUOTE_LETTERHEAD.email),
+  };
+}
+
+export async function saveQuoteLetterhead(user: Actor, input: QuoteLetterhead) {
+  if (user.role !== "admin") throw new DomainError("Bare administrator kan endre brevhode");
+  const place = input.place.trim();
+  const legalName = input.legalName.trim();
+  const orgNr = input.orgNr.replace(/\s/g, "");
+  const address = input.address.trim();
+  const web = input.web.trim();
+  const phone = input.phone.trim();
+  const email = input.email.trim();
+  if (!place || place.length > 40) throw new DomainError("Sted må fylles ut, og kan være inntil 40 tegn");
+  if (!legalName || legalName.length > 80) throw new DomainError("Firmanavn må fylles ut");
+  if (!/^\d{9}$/.test(orgNr)) throw new DomainError("Organisasjonsnummer må være 9 siffer");
+  if (!address || address.length > 120) throw new DomainError("Adresse må fylles ut");
+  if (!web || web.length > 80 || /\s/.test(web)) throw new DomainError("Nettstedet er ugyldig");
+  if (!phone || phone.length > 40) throw new DomainError("Telefonnummer må fylles ut");
+  if (!email.includes("@") || email.length > 80) throw new DomainError("E-postadressen er ugyldig");
+  const values: Record<string, string> = {
+    quote_place: place,
+    quote_company_name: legalName,
+    quote_company_org: orgNr,
+    quote_company_address: address,
+    quote_company_web: web,
+    quote_company_phone: phone,
+    quote_company_email: email,
+  };
+  for (const [key, value] of Object.entries(values)) {
+    await prisma.appSetting.upsert({ where: { key }, update: { value }, create: { key, value } });
+  }
+  await audit(user.id, "settings.letterhead", "setting", "quote_letterhead", values);
+  return quoteLetterhead();
 }
 
 export async function saveQuoteTerms(

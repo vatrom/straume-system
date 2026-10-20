@@ -17,6 +17,7 @@ export function SettingsForms({
   trades,
   lists,
   terms,
+  letterhead,
 }: {
   winnerEmail: string;
   approverRoles: string[];
@@ -25,6 +26,7 @@ export function SettingsForms({
   trades: { code: string; name: string; subcontractor: boolean }[];
   lists: { key: string; name: string; items: { id: string; label: string; active: boolean }[] }[];
   terms: { validDays: number; paymentStartPercent: number; paymentFinishPercent: number; paymentDueDays: number };
+  letterhead: { place: string; legalName: string; orgNr: string; address: string; web: string; phone: string; email: string };
 }) {
   const [message, setMessage] = useState("");
   const [order, setOrder] = useState(trades);
@@ -60,6 +62,44 @@ export function SettingsForms({
             Lagre
           </button>
         ) : null}
+      </form>
+      <form
+        className="card stack"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          const form = new FormData(event.currentTarget);
+          try {
+            await send("/api/settings/letterhead", "PUT", {
+              place: form.get("place"),
+              legalName: form.get("legalName"),
+              orgNr: form.get("orgNr"),
+              address: form.get("address"),
+              web: form.get("web"),
+              phone: form.get("phone"),
+              email: form.get("email"),
+            });
+            setMessage("Brevhode lagret");
+          } catch (error) {
+            setMessage(error instanceof Error ? error.message : "Feil");
+          }
+        }}
+      >
+        <h2>Brevhode på tilbud</h2>
+        <p className="muted">Stedet står i toppteksten. Firmatallene står i bunnteksten på hver side.</p>
+        <div className="row">
+          <label className="field"><span>Sted</span><input name="place" defaultValue={letterhead.place} disabled={!isAdmin} required /></label>
+          <label className="field grow"><span>Firmanavn</span><input name="legalName" defaultValue={letterhead.legalName} disabled={!isAdmin} required /></label>
+          <label className="field"><span>Org.nr</span><input name="orgNr" defaultValue={letterhead.orgNr} disabled={!isAdmin} required /></label>
+        </div>
+        <div className="row">
+          <label className="field grow"><span>Adresse</span><input name="address" defaultValue={letterhead.address} disabled={!isAdmin} required /></label>
+          <label className="field"><span>Telefon</span><input name="phone" defaultValue={letterhead.phone} disabled={!isAdmin} required /></label>
+        </div>
+        <div className="row">
+          <label className="field"><span>Nettsted</span><input name="web" defaultValue={letterhead.web} disabled={!isAdmin} required /></label>
+          <label className="field"><span>E-post</span><input name="email" type="email" defaultValue={letterhead.email} disabled={!isAdmin} required /></label>
+        </div>
+        {isAdmin ? <button className="btn primary" type="submit">Lagre brevhode</button> : null}
       </form>
       <form
         className="card stack"

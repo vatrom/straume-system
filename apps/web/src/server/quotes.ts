@@ -14,7 +14,8 @@ import {
   priceLineToCalc,
   QUOTE_STATUS_LABEL,
   roleCanApprove,
-  AI_SUGGESTION_HEADING,
+  composeQuoteDocument,
+  DEFAULT_COMMERCIAL,
   sanitizeCustomerText,
   TRADES,
   type CalcLine,
@@ -28,8 +29,8 @@ import { audit } from "./audit";
 import { dec } from "./dates";
 import { mailProvider } from "./mail";
 import { loadList } from "./price-admin";
-import { pagesPdf } from "./sketch-files";
-import { publishedTextBlocks, quoteTerms } from "./text-blocks";
+import { displayQuoteNumber, quoteHeaderDate, renderCustomerQuotePdf, safePdfName } from "./quote-pdf";
+import { publishedTextBlocks, quoteLetterhead, quoteTerms } from "./text-blocks";
 
 type Actor = { id: string; role: string; name?: string };
 
@@ -419,7 +420,16 @@ export async function quoteView(id: string) {
       })),
     flags: Array.isArray(quote.flags) ? quote.flags.filter((flag): flag is string => typeof flag === "string") : [],
     ai: quote.aiLogs[0] ? { provider: quote.aiLogs[0].provider, model: quote.aiLogs[0].model, costUsd: dec(quote.aiLogs[0].costUsd) ?? 0 } : null,
+    familyId: quote.familyId,
+    inspectionId: quote.inspectionId,
+    priceListId: quote.priceListId,
+    createdAt: quote.createdAt.toISOString(),
+    sentAt: quote.sentAt?.toISOString() ?? null,
+    personName: [quote.deal?.person?.firstName, quote.deal?.person?.lastName].filter(Boolean).join(" "),
+    personLastName: quote.deal?.person?.lastName ?? "",
+    personPhone: quote.deal?.person?.phone ?? "",
     personEmail: quote.deal?.person?.email ?? null,
+    jobAddress: jobAddress(quote.project, quote.deal?.person),
     lines: lines.map((line) => ({
       id: line.id,
       code: line.code,
@@ -669,50 +679,75 @@ export async function emailQuote(user: Actor, id: string) {
   return { mailId: sent.id };
 }
 
-function wrapPdfLines(text: string, width = 88): string[] {
-  const out: string[] = [];
-  for (const raw of text.split("\n")) {
-    let rest = raw;
-    if (rest.length <= width) {
-      out.push(rest);
-      continue;
-    }
-    while (rest.length > width) {
-      let cut = rest.lastIndexOf(" ", width);
-      if (cut < 24) cut = width;
-      out.push(rest.slice(0, cut));
-      rest = rest.slice(cut).trimStart();
-    }
-    if (rest) out.push(rest);
-  }
-  return out;
+function jobAddress(
+  project: { street: string | null; houseNumber: string | null; postalCode: string | null; city: string | null } | null,
+  person: { street: string | null; houseNumber: string | null; postalCode: string | null; city: string | null } | null | undefined,
+): string {
+  const from = (source: { street: string | null; houseNumber: string | null; postalCode: string | null; city: string | null } | null | undefined) => {
+    if (!source) return "";
+    const street = [source.street, source.houseNumber].filter(Boolean).join(" ").trim();
+    const city = [source.postalCode, source.city].filter(Boolean).join(" ").trim();
+    return [street, city].filter(Boolean).join(", ");
+  };
+  return from(project) || from(person);
 }
 
 export async function quotePdf(id: string): Promise<{ name: string; body: Buffer }> {
   const quote = await quoteView(id);
-  const lines = [
-    `Revisjon ${quote.revision} · ${quote.statusLabel}`,
-    `Sum eks. mva: ${quote.sumExVat} kr`,
-    `Mva: ${quote.vatNok} kr`,
-    `Totalt inkl. mva: ${quote.totalIncVat} kr`,
-    "",
-    ...wrapPdfLines(quote.customerText),
-    "",
-    "Poster",
-    ...quote.lines.filter((line) => !line.internal && line.included).map((line) => `${line.description}  ${line.quantity} ${line.unit}`),
-  ];
-  const reservationHead = quote.reservations.trim().slice(0, 80);
-  if (quote.reservations.trim() && !quote.customerText.includes(reservationHead)) {
-    lines.push("", "Forbehold", ...quote.reservations.split("\n"));
-  }
-  if (quote.aiSuggestion.trim()) {
-    lines.push("", AI_SUGGESTION_HEADING, ...quote.aiSuggestion.split("\n"));
-  }
-  const pages = [];
-  for (let index = 0; index < lines.length; index += 40) {
-    pages.push({ title: index === 0 ? quote.title : `${quote.title} forts.`, lines: lines.slice(index, index + 40) });
-  }
-  return { name: `${quote.title}-rev-${quote.revision}.pdf`, body: pagesPdf(pages) };
+  const [letterhead, blocks, list, terms] = await Promise.all([quoteLetterhead(), publishedTextBlocks(), loadList(quote.priceListId), quoteTerms()]);
+  const answers = quote.inspectionId
+    ? await prisma.checklistAnswer.findMany({
+        where: { inspectionId: quote.inspectionId, deletedAt: null },
+        include: { item: true },
+      })
+    : [];
+  const project = quote.projectId
+    ? await prisma.project.findUnique({
+        where: { id: quote.projectId },
+        select: { plannedStartDate: true, startDate: true, plannedEndDate: true, endDate: true },
+      })
+    : null;
+  const composed = composeQuoteDocument({
+    blocks,
+    lines: quote.lines.map((line) => ({
+      code: line.code,
+      tradeCode: line.tradeCode,
+      description: line.description,
+      unit: line.unit,
+      quantity: line.quantity,
+      included: line.included,
+      internal: line.internal,
+      lineSumExVat: line.lineSumExVat,
+    })),
+    answers: answers.map((answer) => ({ key: answer.item.itemKey, value: answer.value, freeText: answer.freeText })),
+    merge: {
+      rates: list.rates,
+      commercial: list.commercial ?? DEFAULT_COMMERCIAL,
+      totalIncVat: quote.totalIncVat,
+      validDays: quote.validDays,
+      paymentStartPercent: terms.paymentStartPercent,
+      paymentFinishPercent: terms.paymentFinishPercent,
+      paymentDueDays: terms.paymentDueDays,
+      startDate: nbDate(project?.plannedStartDate ?? project?.startDate),
+      endDate: nbDate(project?.plannedEndDate ?? project?.endDate),
+    },
+  });
+  const approved = quote.status === "approved" || quote.status === "sent" || quote.status === "accepted";
+  const number = displayQuoteNumber(quote.familyId);
+  const body = await renderCustomerQuotePdf({
+    document: composed,
+    customer: {
+      name: quote.personName,
+      email: quote.personEmail ?? "",
+      address: quote.jobAddress,
+      phone: quote.personPhone,
+    },
+    letterhead,
+    date: quoteHeaderDate(new Date(quote.sentAt ?? quote.createdAt)),
+    quoteNumber: number,
+    approvedNote: approved ? quote.aiSuggestion : "",
+  });
+  return { name: `Tilbud-${number}-${safePdfName(quote.personLastName || "kunde")}.pdf`, body };
 }
 
 export async function createChangeDraft(user: Actor, projectId: string, description: string) {

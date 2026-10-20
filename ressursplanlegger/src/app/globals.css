@@ -495,6 +495,12 @@ table.heat thead .name-col { z-index: 3; background: #faf7f2; }
   padding: 0;
   background: transparent;
   width: min(520px, calc(100vw - 1.5rem));
+  max-height: calc(100vh - 2rem);
+  height: fit-content;
+  margin: auto;
+  overflow: auto;
+  position: fixed;
+  inset: 0;
 }
 .modal::backdrop { background: rgba(28, 36, 33, 0.45); }
 .modal-card { background: var(--card); border-radius: 18px; padding: 1rem 1rem 1.1rem; box-shadow: var(--shadow); }

@@ -7,18 +7,20 @@ export type SyncEntityName =
   | "wall"
   | "media"
   | "note"
-  | "checklist_answer";
+  | "checklist_answer"
+  | "deal";
 
 export const APPEND_ONLY: ReadonlySet<SyncEntityName> = new Set(["media", "note"]);
 
 export const SYNC_FIELDS: Record<SyncEntityName, readonly string[]> = {
-  inspection: ["projectId", "status", "templateVersionId", "visitedAt"],
-  floor: ["projectId", "inspectionId", "name", "sortOrder"],
+  inspection: ["projectId", "dealId", "status", "templateVersionId", "visitedAt"],
+  floor: ["projectId", "dealId", "inspectionId", "name", "sortOrder"],
   room: ["floorId", "name", "sortOrder", "perimeterM", "ceilingHeightM", "floorAreaM", "measurementSource", "sketch"],
   wall: ["roomId", "number", "edgeIndex", "lengthM"],
-  media: ["projectId", "inspectionId", "floorId", "roomId", "wallId", "answerId", "kind", "internal", "textContent", "mimeType", "fileName", "storageKey"],
-  note: ["projectId", "inspectionId", "floorId", "roomId", "wallId", "answerId", "sectionKey", "body", "internal"],
+  media: ["projectId", "dealId", "inspectionId", "floorId", "roomId", "wallId", "answerId", "kind", "internal", "textContent", "mimeType", "fileName", "storageKey"],
+  note: ["projectId", "dealId", "inspectionId", "floorId", "roomId", "wallId", "answerId", "sectionKey", "body", "internal"],
   checklist_answer: ["inspectionId", "itemId", "value", "freeText", "internalNote"],
+  deal: ["customerName", "phone", "email", "street", "houseNumber", "postalCode", "city", "title"],
 };
 
 export type SyncRecord = {

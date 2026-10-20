@@ -21,12 +21,26 @@ export type SyncRow = {
   baseUpdatedAt: string | null;
 };
 
+export type DealRow = {
+  id: string;
+  title: string;
+  status: string;
+  stageName: string;
+  pipelineName: string;
+  address: string;
+  customerName: string;
+  phone: string;
+  email: string;
+  ownerName: string;
+};
+
 export type PendingFile = {
   id: string;
   uri: string;
   name: string;
   mimeType: string;
   projectId: string;
+  dealId?: string;
   kind: string;
   internal: boolean;
   roomId: string;
@@ -35,15 +49,16 @@ export type PendingFile = {
   inspectionId: string;
 };
 
-type Snapshot = {
+export type Snapshot = {
   projects: ProjectRow[];
+  deals: DealRow[];
   rows: SyncRow[];
   files: PendingFile[];
   checklist: unknown;
   since: string | null;
 };
 
-const EMPTY: Snapshot = { projects: [], rows: [], files: [], checklist: null, since: null };
+const EMPTY: Snapshot = { projects: [], deals: [], rows: [], files: [], checklist: null, since: null };
 const KEY = "straume.db.v1";
 
 async function sqlite() {
@@ -76,6 +91,20 @@ export async function saveDb(snapshot: Snapshot): Promise<void> {
 export function localId(prefix: string): string {
   const body = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
   return `${prefix}-${body}`.replace(/[^a-zA-Z0-9:_-]/g, "").slice(0, 80);
+}
+
+export function parentOf(snapshot: Snapshot, id: string): { kind: "project" | "deal"; title: string } | null {
+  const project = snapshot.projects.find((item) => item.id === id);
+  if (project) return { kind: "project", title: project.title };
+  const deal = snapshot.deals.find((item) => item.id === id);
+  if (deal) return { kind: "deal", title: deal.title };
+  const row = snapshot.rows.find((item) => item.entity === "deal" && item.id === id && !item.deletedAt);
+  if (row) return { kind: "deal", title: String(row.payload.title || row.payload.customerName || "Salgsavtale") };
+  return null;
+}
+
+export function parentPayload(kind: "project" | "deal", id: string): { projectId?: string; dealId?: string } {
+  return kind === "deal" ? { dealId: id } : { projectId: id };
 }
 
 export function rowsOf(snapshot: Snapshot, entity: string): SyncRow[] {

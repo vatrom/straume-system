@@ -13,7 +13,7 @@ export default function RoomScreen() {
   const [note, setNote] = useState("");
   const [internal, setInternal] = useState(true);
   const [measures, setMeasures] = useState("Ingen mål ennå");
-  const [context, setContext] = useState({ projectId: "", floorId: "", inspectionId: "" });
+  const [context, setContext] = useState({ projectId: "", dealId: "", floorId: "", inspectionId: "" });
   const [saved, setSaved] = useState("");
 
   useEffect(() => {
@@ -25,6 +25,7 @@ export default function RoomScreen() {
       const floor = db.rows.find((row) => row.entity === "floor" && row.id === room.payload.floorId);
       setContext({
         projectId: String(floor?.payload.projectId ?? ""),
+        dealId: String(floor?.payload.dealId ?? ""),
         floorId: String(room.payload.floorId ?? ""),
         inspectionId: String(floor?.payload.inspectionId ?? ""),
       });
@@ -60,10 +61,11 @@ export default function RoomScreen() {
         <Button
           label="Lagre notat"
           onPress={async () => {
-            if (!note.trim() || !context.projectId) return;
+            if (!note.trim() || (!context.projectId && !context.dealId)) return;
             let db = await loadDb();
             db = touch(db, "note", localId("notat"), {
-              projectId: context.projectId,
+              ...(context.projectId ? { projectId: context.projectId } : {}),
+              ...(context.dealId ? { dealId: context.dealId } : {}),
               inspectionId: context.inspectionId || null,
               floorId: context.floorId,
               roomId: id,
@@ -83,7 +85,7 @@ export default function RoomScreen() {
           <Button label="Bilde" tone="ghost" onPress={() => void captureMedia({ ...context, roomId: String(id), kind: "photo", internal })} />
           <Button label="Video" tone="ghost" onPress={() => void captureMedia({ ...context, roomId: String(id), kind: "video", internal })} />
         </View>
-        <VoiceNote projectId={context.projectId} roomId={String(id)} floorId={context.floorId} inspectionId={context.inspectionId} internal={internal} />
+        <VoiceNote projectId={context.projectId} dealId={context.dealId} roomId={String(id)} floorId={context.floorId} inspectionId={context.inspectionId} internal={internal} />
       </Card>
       {saved ? <Text>{saved}</Text> : null}
       <Text style={{ color: colors.muted }}>Vegger nummereres med klokka fra døra i skissen.</Text>

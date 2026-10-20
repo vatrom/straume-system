@@ -18,6 +18,7 @@ export default async function InspectionPage({ params }: { params: Promise<{ id:
           <h1>Befaring · {inspection.title}</h1>
           <p>Utført av {inspection.inspector}. Intern oppsummering, samme rekkefølge som skjemaet.</p>
         </div>
+        <Link className="btn primary" href={`/befaring/${inspection.id}/skjema`}>Fyll ut sjekkliste</Link>
         <a className="btn" href={`/api/inspections/${inspection.id}/pdf`}>Last ned PDF</a>
       </div>
       <div className="stack">

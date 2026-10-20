@@ -6,7 +6,7 @@ import { addStage, createDeal, createPipeline, createProjectFromDeal, dealsForBo
 import { adjustPriceList, priceListView } from "./price-admin";
 import { queryInsights } from "./insights";
 import { customerView, dashboard, moveProject, updateProject } from "./projects";
-import { pushMutations } from "./sync-service";
+import { pullChanges, pushMutations } from "./sync-service";
 
 const admin = { id: "00000000-0000-4000-8000-000000000001", role: "admin" };
 const projectId = "60000000-0000-4000-8000-000000000001";
@@ -15,14 +15,18 @@ describe("fase 1 mot databasen", () => {
   const created: string[] = [];
   const extraProjects: string[] = [];
   const extraDeals: string[] = [];
+  const extraPeople: string[] = [];
+  const extraInspections: string[] = [];
 
   afterAll(async () => {
     if (created.length) {
       await prisma.priceList.deleteMany({ where: { id: { in: created } } });
       await prisma.note.deleteMany({ where: { id: { in: created } } });
     }
+    if (extraInspections.length) await prisma.inspection.deleteMany({ where: { id: { in: extraInspections } } });
     if (extraProjects.length) await prisma.project.deleteMany({ where: { id: { in: extraProjects } } });
     if (extraDeals.length) await prisma.deal.deleteMany({ where: { id: { in: extraDeals } } });
+    if (extraPeople.length) await prisma.person.deleteMany({ where: { id: { in: extraPeople } } });
     await prisma.$disconnect();
   });
 
@@ -104,6 +108,73 @@ describe("fase 1 mot databasen", () => {
     expect(stale.results[0]?.ok).toBe(true);
     const stored = await prisma.note.findUnique({ where: { id: noteId } });
     expect(stored?.body).toBe("Synktest");
+  });
+
+  it("tar imot befaring på salgsavtale og oppretter avtalen bare én gang", async () => {
+    const dealId = "50000000-0000-4000-8000-000000000001";
+    const inspectionId = `bef-deal-${Date.now().toString(36)}`;
+    extraInspections.push(inspectionId);
+    const visit = new Date().toISOString();
+    const pushed = await pushMutations(admin.id, [
+      {
+        entity: "inspection",
+        op: "upsert",
+        id: inspectionId,
+        updatedAt: visit,
+        payload: { dealId, status: "draft", visitedAt: visit },
+      },
+    ]);
+    expect(pushed.results[0]?.ok).toBe(true);
+    const stored = await prisma.inspection.findUnique({ where: { id: inspectionId } });
+    expect(stored?.dealId).toBe(dealId);
+    expect(stored?.projectId).toBeNull();
+
+    const missing = await pushMutations(admin.id, [
+      {
+        entity: "inspection",
+        op: "upsert",
+        id: `bef-none-${Date.now().toString(36)}`,
+        updatedAt: visit,
+        payload: { status: "draft" },
+      },
+    ]);
+    expect(missing.results[0]?.ok).toBe(false);
+
+    const syncedDealId = `deal-sync-${Date.now().toString(36)}`;
+    extraDeals.push(syncedDealId);
+    const createdDeal = await pushMutations(admin.id, [
+      {
+        entity: "deal",
+        op: "upsert",
+        id: syncedDealId,
+        updatedAt: visit,
+        payload: { customerName: "Kari Nordmann", phone: "90000000", email: "kari@example.test", street: "Testveien 4", postalCode: "5353", city: "Straume", title: "Testveien 4" },
+      },
+    ]);
+    expect(createdDeal.results[0]?.ok).toBe(true);
+    const again = await pushMutations(admin.id, [
+      {
+        entity: "deal",
+        op: "upsert",
+        id: syncedDealId,
+        updatedAt: new Date().toISOString(),
+        payload: { customerName: "Noen Annen", title: "Skal ikke overskrives" },
+      },
+    ]);
+    expect(again.results[0]?.ok).toBe(true);
+    const deal = await prisma.deal.findUnique({ where: { id: syncedDealId }, include: { person: true } });
+    expect(deal?.title).toBe("Testveien 4");
+    expect(deal?.status).toBe("open");
+    expect(deal?.person?.firstName).toBe("Kari");
+    expect(deal?.person?.lastName).toBe("Nordmann");
+    if (deal?.personId) extraPeople.push(deal.personId);
+    expect(await prisma.deal.count({ where: { id: syncedDealId } })).toBe(1);
+
+    const pull = await pullChanges(null);
+    expect(pull.deals.some((item) => item.id === dealId && item.status === "open")).toBe(true);
+    expect(pull.deals.every((item) => item.status === "open")).toBe(true);
+    expect(pull.projects.every((item) => item.status === "open")).toBe(true);
+    expect(pull.deals.some((item) => item.id === syncedDealId)).toBe(true);
   });
 
   it("holder vunne og tapte avtaler ute av salgspipen", async () => {

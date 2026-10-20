@@ -1,8 +1,8 @@
 import { asItemConfig, fieldVisible, sectionVisible, selectedTrades, type ItemConfig } from "@straume/domain";
-import { loadDb, localId, rowsOf, saveDb, touch, type SyncRow } from "@/src/db";
+import { loadDb, localId, parentOf, parentPayload, rowsOf, saveDb, touch, type SyncRow } from "@/src/db";
 import { captureMedia } from "@/src/media";
 import { Button, Card, Field, colors } from "@/src/ui";
-import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import { ScrollView, Text, useWindowDimensions, View } from "react-native";
 
@@ -24,7 +24,9 @@ export default function ProjectScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { width } = useWindowDimensions();
-  const [title, setTitle] = useState("Prosjekt");
+  const [title, setTitle] = useState("Befaring");
+  const [kind, setKind] = useState<"project" | "deal">("project");
+  const [visitReady, setVisitReady] = useState("");
   const [floors, setFloors] = useState<SyncRow[]>([]);
   const [rooms, setRooms] = useState<SyncRow[]>([]);
   const [checklist, setChecklist] = useState<Checklist | null>(null);
@@ -35,9 +37,10 @@ export default function ProjectScreen() {
 
   const reload = useCallback(async () => {
     const db = await loadDb();
-    const project = db.projects.find((item) => item.id === id);
-    setTitle(project?.title ?? "Prosjekt");
-    const floorRows = rowsOf(db, "floor").filter((row) => row.payload.projectId === id);
+    const parent = parentOf(db, String(id));
+    setKind(parent?.kind ?? "project");
+    setTitle(parent?.title ?? "Befaring");
+    const floorRows = rowsOf(db, "floor").filter((row) => row.payload.projectId === id || row.payload.dealId === id);
     setFloors(floorRows);
     const floorIds = new Set(floorRows.map((row) => row.id));
     setRooms(rowsOf(db, "room").filter((row) => floorIds.has(String(row.payload.floorId))));
@@ -49,7 +52,7 @@ export default function ProjectScreen() {
       }));
     }
     setChecklist(published);
-    const inspection = rowsOf(db, "inspection").find((row) => row.payload.projectId === id);
+    const inspection = rowsOf(db, "inspection").find((row) => row.payload.projectId === id || row.payload.dealId === id);
     const visit = inspection?.id ?? "";
     setInspectionId(visit);
     const stored: Record<string, Stored> = {};
@@ -69,14 +72,17 @@ export default function ProjectScreen() {
   async function ensureInspection() {
     let db = await loadDb();
     const versionId = (db.checklist as Checklist | null)?.versionId ?? null;
-    let inspection = rowsOf(db, "inspection").find((row) => row.payload.projectId === id);
+    const parent = parentOf(db, String(id));
+    const link = parentPayload(parent?.kind ?? kind, String(id));
+    let inspection = rowsOf(db, "inspection").find((row) => row.payload.projectId === id || row.payload.dealId === id);
     if (!inspection) {
       const created = localId("bef");
-      db = touch(db, "inspection", created, { projectId: id, status: "draft", templateVersionId: versionId, visitedAt: new Date().toISOString() });
+      db = touch(db, "inspection", created, { ...link, status: "draft", templateVersionId: versionId, visitedAt: new Date().toISOString() });
       inspection = db.rows.find((row) => row.id === created);
     }
     await saveDb(db);
     setInspectionId(inspection?.id ?? "");
+    setVisitReady(inspection ? "Tilbudsbefaring er klar. Fyll ut sjekklisten under." : "");
     return inspection?.id ?? "";
   }
 
@@ -128,7 +134,11 @@ export default function ProjectScreen() {
 
   return (
     <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
+      <Stack.Screen options={{ title }} />
       <Text style={{ fontSize: 28, fontWeight: "700", color: colors.sea }}>{title}</Text>
+      <Text style={{ color: colors.muted }}>{kind === "deal" ? "Salgsavtale" : "Prosjekt"}</Text>
+      <Button label="Ny befaring" large onPress={() => void ensureInspection()} />
+      {visitReady ? <Text>{visitReady}</Text> : null}
       <View style={{ flexDirection: width >= 800 ? "row" : "column", gap: 12, alignItems: "flex-start" }}>
         <View style={{ flex: 1, gap: 12, width: "100%" }}>
           <Card>
@@ -170,7 +180,7 @@ export default function ProjectScreen() {
               onPress={async () => {
                 const visit = await ensureInspection();
                 let db = await loadDb();
-                db = touch(db, "floor", localId("etasje"), { projectId: id, inspectionId: visit, name: `${floors.length + 1}. etasje`, sortOrder: floors.length });
+                db = touch(db, "floor", localId("etasje"), { ...parentPayload(kind, String(id)), inspectionId: visit, name: `${floors.length + 1}. etasje`, sortOrder: floors.length });
                 await saveDb(db);
                 await reload();
               }}
@@ -202,7 +212,7 @@ export default function ProjectScreen() {
                       const floor = floors[0];
                       const target = rooms[0];
                       if (!floor || !target) return;
-                      const mediaId = await captureMedia({ projectId: String(id), roomId: target.id, floorId: floor.id, inspectionId: visit, kind: "photo", internal: true });
+                      const mediaId = await captureMedia({ ...parentPayload(kind, String(id)), roomId: target.id, floorId: floor.id, inspectionId: visit, kind: "photo", internal: true });
                       if (mediaId) await saveAnswer(item, mediaId);
                     }}
                   />
@@ -216,7 +226,7 @@ export default function ProjectScreen() {
                     const visit = inspectionId || (await ensureInspection());
                     let db = await loadDb();
                     db = touch(db, "note", localId("notat"), {
-                      projectId: id,
+                      ...parentPayload(kind, String(id)),
                       inspectionId: visit,
                       sectionKey: section.name,
                       body: internal.trim(),

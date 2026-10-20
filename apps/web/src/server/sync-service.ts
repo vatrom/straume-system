@@ -10,18 +10,22 @@ import {
 } from "@straume/domain";
 import { audit } from "./audit";
 import { publishedChecklist } from "./checklists";
+import { createDeal } from "./crm";
 
 type Column = readonly [string, "string" | "number" | "bool" | "json" | "date"];
+type PersistedEntity = Exclude<SyncEntityName, "deal">;
 
-const COLUMNS: Record<SyncEntityName, readonly Column[]> = {
+const COLUMNS: Record<PersistedEntity, readonly Column[]> = {
   inspection: [
     ["projectId", "string"],
+    ["dealId", "string"],
     ["status", "string"],
     ["templateVersionId", "string"],
     ["visitedAt", "date"],
   ],
   floor: [
     ["projectId", "string"],
+    ["dealId", "string"],
     ["inspectionId", "string"],
     ["name", "string"],
     ["sortOrder", "number"],
@@ -44,6 +48,7 @@ const COLUMNS: Record<SyncEntityName, readonly Column[]> = {
   ],
   media: [
     ["projectId", "string"],
+    ["dealId", "string"],
     ["inspectionId", "string"],
     ["floorId", "string"],
     ["roomId", "string"],
@@ -58,6 +63,7 @@ const COLUMNS: Record<SyncEntityName, readonly Column[]> = {
   ],
   note: [
     ["projectId", "string"],
+    ["dealId", "string"],
     ["inspectionId", "string"],
     ["floorId", "string"],
     ["roomId", "string"],
@@ -76,7 +82,7 @@ const COLUMNS: Record<SyncEntityName, readonly Column[]> = {
   ],
 };
 
-function delegate(tx: Prisma.TransactionClient, entity: SyncEntityName) {
+function delegate(tx: Prisma.TransactionClient, entity: PersistedEntity) {
   const map = {
     inspection: tx.inspection,
     floor: tx.floor,
@@ -108,7 +114,7 @@ function inValue(kind: Column[1], value: unknown): unknown {
   return value;
 }
 
-async function loadRecord(tx: Prisma.TransactionClient, entity: SyncEntityName, id: string): Promise<SyncRecord | null> {
+async function loadRecord(tx: Prisma.TransactionClient, entity: PersistedEntity, id: string): Promise<SyncRecord | null> {
   const row = await delegate(tx, entity).findUnique({ where: { id } });
   if (!row) return null;
   const stamps = (row.fieldUpdatedAt as Record<string, string> | null) ?? {};
@@ -128,30 +134,39 @@ async function loadRecord(tx: Prisma.TransactionClient, entity: SyncEntityName, 
 }
 
 function toData(record: SyncRecord): Record<string, unknown> {
+  const entity = record.entity as PersistedEntity;
   const data: Record<string, unknown> = {
     updatedAt: new Date(record.updatedAt),
     deletedAt: record.deletedAt ? new Date(record.deletedAt) : null,
     fieldUpdatedAt: Object.fromEntries(Object.entries(record.fields).map(([key, field]) => [key, field.updatedAt])),
   };
-  for (const [name, kind] of COLUMNS[record.entity]) {
+  for (const [name, kind] of COLUMNS[entity]) {
     if (!(name in record.fields)) continue;
-    data[name] = inValue(kind, record.fields[name]?.value);
+    const raw = record.fields[name]?.value;
+    data[name] = name.endsWith("Id") && (raw == null || raw === "") ? null : inValue(kind, raw);
   }
-  if (record.entity === "media" && data.kind) data.kind = data.kind as MediaKind;
+  if (entity === "media" && data.kind) data.kind = data.kind as MediaKind;
   return data;
 }
 
-async function assertParents(tx: Prisma.TransactionClient, entity: SyncEntityName, fields: SyncRecord["fields"]) {
-  const need = async (model: "project" | "floor" | "room" | "inspection" | "checklistItem", id: unknown, label: string) => {
+async function assertParents(tx: Prisma.TransactionClient, entity: PersistedEntity, fields: SyncRecord["fields"]) {
+  const need = async (model: "project" | "deal" | "floor" | "room" | "inspection" | "checklistItem", id: unknown, label: string) => {
     if (typeof id !== "string" || !id) throw new DomainError(`${label} mangler`);
     const found = await (tx[model] as unknown as { findUnique(args: { where: { id: string } }): Promise<{ id: string } | null> }).findUnique({ where: { id } });
     if (!found) throw new DomainError(`${label} finnes ikke på serveren`);
   };
-  if (entity === "inspection") await need("project", fields.projectId?.value, "Prosjekt");
-  if (entity === "floor") await need("project", fields.projectId?.value, "Prosjekt");
+  const parent = async () => {
+    const projectId = fields.projectId?.value;
+    const dealId = fields.dealId?.value;
+    const hasProject = typeof projectId === "string" && projectId.length > 0;
+    const hasDeal = typeof dealId === "string" && dealId.length > 0;
+    if (!hasProject && !hasDeal) throw new DomainError("Befaringen må høre til en salgsavtale eller et prosjekt");
+    if (hasProject) await need("project", projectId, "Prosjekt");
+    if (hasDeal) await need("deal", dealId, "Salgsavtale");
+  };
+  if (entity === "inspection" || entity === "floor" || entity === "media" || entity === "note") await parent();
   if (entity === "room") await need("floor", fields.floorId?.value, "Etasje");
   if (entity === "wall") await need("room", fields.roomId?.value, "Rom");
-  if (entity === "media" || entity === "note") await need("project", fields.projectId?.value, "Prosjekt");
   if (entity === "checklist_answer") {
     await need("inspection", fields.inspectionId?.value, "Befaring");
     await need("checklistItem", fields.itemId?.value, "Sjekklistepunkt");
@@ -168,14 +183,20 @@ export async function pushMutations(userId: string, mutations: SyncMutation[]) {
     try {
       assertSyncId(mutation.id);
       if (!SYNC_FIELDS[mutation.entity]) throw new DomainError("Ukjent entitet");
+      if (mutation.entity === "deal") {
+        await saveSyncedDeal(userId, mutation);
+        results.push({ id: mutation.id, entity: mutation.entity, ok: true, conflicts: [], record: null });
+        continue;
+      }
+      const entity = mutation.entity;
       const saved = await prisma.$transaction(async (tx) => {
-        const existing = await loadRecord(tx, mutation.entity, mutation.id);
+        const existing = await loadRecord(tx, entity, mutation.id);
         const applied = applyMutation(existing, mutation);
-        if (applied.record && mutation.op === "upsert" && !existing) await assertParents(tx, mutation.entity, applied.record.fields);
+        if (applied.record && mutation.op === "upsert" && !existing) await assertParents(tx, entity, applied.record.fields);
         if (applied.record) {
           const data = toData(applied.record);
-          if (existing) await delegate(tx, mutation.entity).update({ where: { id: mutation.id }, data });
-          else await delegate(tx, mutation.entity).create({ data: { id: mutation.id, ...data } });
+          if (existing) await delegate(tx, entity).update({ where: { id: mutation.id }, data });
+          else await delegate(tx, entity).create({ data: { id: mutation.id, ...data } });
         }
         if (applied.conflicts.length) {
           await tx.syncConflict.createMany({
@@ -212,9 +233,15 @@ export async function pushMutations(userId: string, mutations: SyncMutation[]) {
 export async function pullChanges(since?: string | null) {
   const cursor = since ? new Date(since) : new Date(0);
   const where = { updatedAt: { gt: cursor } };
-  const [projects, inspections, floors, rooms, walls, media, notes, answers, checklist] = await Promise.all([
+  const [projects, deals, inspections, floors, rooms, walls, media, notes, answers, checklist] = await Promise.all([
     prisma.project.findMany({
+      where: { status: "open" },
       include: { phase: true, board: true, seller: true, projectManager: true },
+      orderBy: { updatedAt: "desc" },
+    }),
+    prisma.deal.findMany({
+      where: { status: "open" },
+      include: { stage: true, owner: true, person: true, pipeline: true },
       orderBy: { updatedAt: "desc" },
     }),
     prisma.inspection.findMany({ where }),
@@ -226,7 +253,7 @@ export async function pullChanges(since?: string | null) {
     prisma.checklistAnswer.findMany({ where }),
     publishedChecklist(),
   ]);
-  const pack = (entity: SyncEntityName, rows: Record<string, unknown>[]) =>
+  const pack = (entity: PersistedEntity, rows: Record<string, unknown>[]) =>
     rows.map((row) => {
       const stamps = (row.fieldUpdatedAt as Record<string, string> | null) ?? {};
       const updatedAt = (row.updatedAt as Date).toISOString();
@@ -254,6 +281,19 @@ export async function pullChanges(since?: string | null) {
       projectManagerName: project.projectManager.name,
       updatedAt: project.updatedAt.toISOString(),
     })),
+    deals: deals.map((deal) => ({
+      id: deal.id,
+      title: deal.title,
+      status: deal.status,
+      stageName: deal.stage.name,
+      pipelineName: deal.pipeline.name,
+      address: [deal.person?.street, deal.person?.houseNumber, deal.person?.postalCode, deal.person?.city].filter(Boolean).join(" "),
+      customerName: deal.person ? `${deal.person.firstName} ${deal.person.lastName}`.trim() : "",
+      phone: deal.person?.phone ?? "",
+      email: deal.person?.email ?? "",
+      ownerName: deal.owner.name,
+      updatedAt: deal.updatedAt.toISOString(),
+    })),
     records: [
       ...pack("inspection", inspections as unknown as Record<string, unknown>[]),
       ...pack("floor", floors as unknown as Record<string, unknown>[]),
@@ -269,7 +309,8 @@ export async function pullChanges(since?: string | null) {
 
 export async function saveMediaFile(userId: string, input: {
   id: string;
-  projectId: string;
+  projectId?: string | null;
+  dealId?: string | null;
   kind: MediaKind;
   internal: boolean;
   bytes: Buffer;
@@ -281,7 +322,11 @@ export async function saveMediaFile(userId: string, input: {
   inspectionId?: string | null;
 }) {
   assertSyncId(input.id);
-  const key = `projects/${input.projectId}/media/${input.id}-${input.fileName.replace(/[^\w.\-]+/g, "_")}`;
+  const projectId = input.projectId || null;
+  const dealId = input.dealId || null;
+  if (!projectId && !dealId) throw new DomainError("Befaringen må høre til en salgsavtale eller et prosjekt");
+  const folder = projectId ? `projects/${projectId}` : `deals/${dealId}`;
+  const key = `${folder}/media/${input.id}-${input.fileName.replace(/[^\w.\-]+/g, "_")}`;
   const { putObject } = await import("./store");
   await putObject(key, input.bytes, input.mimeType);
   const now = new Date().toISOString();
@@ -292,7 +337,8 @@ export async function saveMediaFile(userId: string, input: {
       id: input.id,
       updatedAt: now,
       payload: {
-        projectId: input.projectId,
+        projectId,
+        dealId,
         kind: input.kind,
         internal: input.internal,
         mimeType: input.mimeType,
@@ -306,4 +352,49 @@ export async function saveMediaFile(userId: string, input: {
     },
   ]);
   return { storageKey: key };
+}
+
+function textField(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+async function saveSyncedDeal(userId: string, mutation: SyncMutation) {
+  if (mutation.op === "delete") throw new DomainError("Salgsavtaler slettes ikke fra appen");
+  const existing = await prisma.deal.findUnique({ where: { id: mutation.id }, select: { id: true } });
+  if (existing) return;
+  const payload = mutation.payload ?? {};
+  const customerName = textField(payload.customerName);
+  if (!customerName) throw new DomainError("Kunden må ha et navn");
+  const parts = customerName.split(/\s+/).filter(Boolean);
+  const firstName = parts[0] ?? "Ukjent";
+  const lastName = parts.slice(1).join(" ") || "Kunde";
+  const street = textField(payload.street);
+  const houseNumber = textField(payload.houseNumber);
+  const title = textField(payload.title) || [street, houseNumber].filter(Boolean).join(" ") || customerName;
+  const pipeline = await prisma.pipeline.findFirst({
+    orderBy: { sortOrder: "asc" },
+    include: { stages: { orderBy: { sortOrder: "asc" }, take: 1 } },
+  });
+  const stage = pipeline?.stages[0];
+  if (!pipeline || !stage) throw new DomainError("Fant ikke salgspipeline");
+  await createDeal(
+    { id: userId, role: "selger" },
+    {
+      id: mutation.id,
+      title,
+      pipelineId: pipeline.id,
+      stageId: stage.id,
+      ownerId: userId,
+      newPerson: {
+        firstName,
+        lastName,
+        email: textField(payload.email),
+        phone: textField(payload.phone),
+        street,
+        houseNumber,
+        postalCode: textField(payload.postalCode),
+        city: textField(payload.city),
+      },
+    },
+  );
 }

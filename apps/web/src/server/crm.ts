@@ -218,6 +218,7 @@ export async function getDeal(id: string) {
 }
 
 type DealInput = {
+  id?: string;
   title?: string;
   valueNok?: number;
   ownerId?: string;
@@ -255,6 +256,7 @@ export async function createDeal(user: { id: string; role: string }, input: Deal
   const place = await placeOf(personId);
   const deal = await prisma.deal.create({
     data: {
+      ...(input.id ? { id: input.id } : {}),
       title,
       valueNok: input.valueNok ?? 0,
       ownerId,

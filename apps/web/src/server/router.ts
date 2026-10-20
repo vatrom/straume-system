@@ -12,7 +12,7 @@ import { addQuoteLine, createChangeDraft, createQuoteDraft, decideChange, emailQ
 import { publishTextBlocks, saveQuoteTerms, saveTextBlock, textBlockEditor } from "./text-blocks";
 import { dashboardView, deleteGoal, deleteReport, drilldown, exportInsights, goalBoard, insightMeta, queryInsights, saveGoal, saveReport, setPeerVisibility, toCsv, toExcelXml } from "./insights";
 import { addChange, addDocument, addPhase, customerView, dashboard, editChange, editPhase, listBoards, moveProject, orderPhases, projectDetail, removePhase, roomSketchFile, sendWinner, updateProject } from "./projects";
-import { inspectionPdf } from "./inspections";
+import { ensureDealInspection, inspectionPdf, saveInspectionAnswers } from "./inspections";
 import { getObject } from "./store";
 import { pullChanges, pushMutations, saveMediaFile } from "./sync-service";
 import type { SyncMutation } from "@straume/domain";
@@ -139,6 +139,7 @@ async function dispatch(req: Request, slug: string[], user: SessionUser): Promis
     );
   }
   if (a === "deals" && b && c === "project" && method === "POST") return json(await createProjectFromDeal(user, b), 201, req);
+  if (a === "deals" && b && c === "inspection" && method === "POST") return json(await ensureDealInspection(user.id, b), 201, req);
   if (a === "deals" && b && c === "lose" && method === "POST") {
     const body = await readJson<{ lostReason: string; lostComment?: string }>(req);
     return json(await loseDeal(user, b, body.lostReason, body.lostComment), 200, req);
@@ -306,6 +307,10 @@ async function dispatch(req: Request, slug: string[], user: SessionUser): Promis
   }
   if (a === "quotes" && b && c === "revision" && method === "POST") return json(await reviseQuote(user, b), 201, req);
   if (a === "quotes" && b && c === "email" && method === "POST") return json(await emailQuote(user, b), 200, req);
+  if (a === "inspections" && b && c === "answers" && method === "PUT") {
+    const body = await readJson<{ answers?: { itemId: string; value: unknown; freeText?: string | null; internalNote?: string | null }[] }>(req);
+    return json(await saveInspectionAnswers(user.id, b, body.answers ?? []), 200, req);
+  }
   if (a === "inspections" && b && c === "pdf" && method === "GET") {
     const file = await inspectionPdf(b);
     return new Response(new Uint8Array(file.body), {
@@ -453,12 +458,14 @@ async function uploadMedia(req: Request, user: SessionUser): Promise<Response> {
   const file = form.get("file");
   if (!(file instanceof File)) throw new HttpError(400, "Mangler fil");
   const id = String(form.get("id") || "");
-  const projectId = String(form.get("projectId") || "");
+  const projectId = String(form.get("projectId") || "") || null;
+  const dealId = String(form.get("dealId") || "") || null;
   const kind = String(form.get("kind") || "photo") as "photo" | "video" | "voice" | "text";
   const internal = String(form.get("internal") || "true") !== "false";
   const saved = await saveMediaFile(user.id, {
     id,
     projectId,
+    dealId,
     kind,
     internal,
     bytes: Buffer.from(await file.arrayBuffer()),

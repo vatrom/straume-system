@@ -3,7 +3,8 @@ import { Platform } from "react-native";
 import { loadDb, localId, saveDb } from "./db";
 
 export async function captureMedia(input: {
-  projectId: string;
+  projectId?: string;
+  dealId?: string;
   roomId: string;
   floorId: string;
   inspectionId: string;
@@ -24,7 +25,8 @@ export async function captureMedia(input: {
     uri: asset.uri,
     name: asset.fileName || `${input.kind}-${id}`,
     mimeType: asset.mimeType || (input.kind === "video" ? "video/mp4" : "image/jpeg"),
-    projectId: input.projectId,
+    projectId: input.projectId ?? "",
+    dealId: input.dealId ?? "",
     kind: input.kind,
     internal: input.internal,
     roomId: input.roomId,

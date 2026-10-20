@@ -5,7 +5,7 @@ import { dec, isoDate } from "@/server/dates";
 import { quotesFor } from "@/server/quotes";
 import { prisma } from "@straume/db";
 import Link from "next/link";
-import { CreateProjectButton, DealActions } from "./actions";
+import { CreateProjectButton, DealActions, NewInspectionButton } from "./actions";
 
 export default async function DealPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -26,6 +26,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
           <p>{nok(dec(deal.valueNok) ?? 0)} · {deal.owner.name} · {deal.stage.name}</p>
         </div>
         {deal.project ? <Link className="btn" href={`/prosjekter/${deal.project.id}`}>Åpne prosjekt</Link> : null}
+        <NewInspectionButton dealId={deal.id} />
         {inspection ? <Link className="btn" href={`/befaring/${inspection.id}`}>Befaring</Link> : null}
         {inspection ? <DraftButton dealId={deal.id} projectId={deal.project?.id} /> : null}
         {deal.status === "won" && !deal.project ? <CreateProjectButton id={deal.id} /> : null}

@@ -7,6 +7,7 @@ import {
   type GoalInput,
   type InsightActivity,
   type InsightDeal,
+  type InsightQuote,
   type InsightResult,
   type InsightSpec,
   type StageMove,
@@ -100,11 +101,40 @@ async function loadBundle(user: Actor): Promise<Bundle> {
   };
 }
 
+async function loadInsightQuotes(user: Actor, seeAll: boolean): Promise<InsightQuote[]> {
+  const quotes = await prisma.quote.findMany({
+    where: seeAll ? {} : { createdById: user.id },
+    include: { deal: { include: { owner: true } }, project: { include: { seller: true } } },
+  });
+  return quotes.map((quote) => {
+    const owner = quote.deal?.owner ?? quote.project?.seller;
+    const status = quote.status;
+    const flow = ["draft", "pending_approval", "approved", "sent", "accepted", "rejected"].includes(status)
+      ? (status as InsightQuote["status"])
+      : "draft";
+    return {
+      id: quote.id,
+      dealId: quote.dealId,
+      status: flow,
+      valueIncVat: dec(quote.totalIncVat) ?? 0,
+      marginExVat: dec(quote.marginExVat) ?? 0,
+      createdAt: quote.createdAt.toISOString(),
+      decidedAt: quote.decidedAt?.toISOString() ?? null,
+      ownerId: owner?.id ?? quote.createdById ?? "",
+      ownerName: owner?.name ?? "",
+      source: quote.deal?.sourceChannel ?? "",
+      area: quote.deal?.area || quote.project?.city || "",
+      hoursByTrade: (quote.hoursByTrade ?? {}) as Record<string, number>,
+    };
+  });
+}
+
 export async function queryInsights(user: Actor, specInput: Partial<InsightSpec>, bundle?: Bundle): Promise<InsightResult> {
   const data = bundle ?? (await loadBundle(user));
   const spec = normalizeSpec(specInput);
   if (!data.seeAll) spec.sellerId = user.id;
-  return runInsight(data.deals, data.moves, data.activities, data.stages, spec, new Date());
+  const quotes = await loadInsightQuotes(user, data.seeAll);
+  return runInsight(data.deals, data.moves, data.activities, data.stages, spec, new Date(), quotes);
 }
 
 export async function insightMeta(user: Actor) {

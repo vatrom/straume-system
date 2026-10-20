@@ -3,7 +3,7 @@ import { Text } from "react-native";
 import { loadDb, localId, saveDb } from "./db";
 import { Button } from "./ui";
 
-export function VoiceNote({ projectId, roomId, floorId, inspectionId, internal }: { projectId: string; roomId: string; floorId: string; inspectionId: string; internal: boolean }) {
+export function VoiceNote({ projectId, dealId = "", roomId, floorId, inspectionId, internal }: { projectId: string; dealId?: string; roomId: string; floorId: string; inspectionId: string; internal: boolean }) {
   const [message, setMessage] = useState("På nettleser velger du en lydfil. Opptak skjer i Expo Go.");
   return (
     <>
@@ -24,6 +24,7 @@ export function VoiceNote({ projectId, roomId, floorId, inspectionId, internal }
               name: file.name,
               mimeType: file.type || "audio/mpeg",
               projectId,
+              dealId,
               kind: "voice",
               internal,
               roomId,

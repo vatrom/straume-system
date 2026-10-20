@@ -15,14 +15,19 @@ for (const file of [join(here, "../../../.env"), join(here, "../../../.env.local
   }
 }
 import {
+  DEFAULT_QUOTE_LETTERHEAD,
   DEFAULT_TRADE_RATES,
   numberedWalls,
   priceListFromCsv,
+  TILBUDSBEFARING,
   TRADES,
+  VIDAR_PRICE_LINES,
   type Sketch,
 } from "@straume/domain";
-import { PrismaClient, type ActivityType, type QuestionType } from "@prisma/client";
+import { PrismaClient, type ActivityType, type Prisma, type QuestionType } from "@prisma/client";
+import { ensureDemoBefaring } from "./befaring-seed";
 import { ensureInsights } from "./insight-seed";
+import { ensurePhase2, ensureTextBlocks } from "./phase2-seed";
 
 const prisma = new PrismaClient();
 
@@ -62,80 +67,8 @@ const PHASE = {
   undersokelse: id(8, "21000000"),
 };
 
-const checklist: { tradeCode: string; name: string; items: { prompt: string; questionType: QuestionType; choices?: string[]; unit?: string; priceItemCode?: string; required?: boolean }[] }[] = [
-  {
-    tradeCode: "riving",
-    name: "Riving",
-    items: [
-      { prompt: "Skal kunden rive selv?", questionType: "yes_no" },
-      { prompt: "Mistanke om asbest, sopp eller skjulte skader?", questionType: "yes_no", required: true },
-      { prompt: "Trengs container?", questionType: "yes_no" },
-      { prompt: "Kommentar riving", questionType: "text" },
-    ],
-  },
-  {
-    tradeCode: "tomrer",
-    name: "Tømrer",
-    items: [
-      { prompt: "Platetype", questionType: "choice", choices: ["Våtromsplater 20 mm", "Våtromsplater 12 mm", "Fibo", "Aquapro", "Gips"], priceItemCode: "TOM-002" },
-      { prompt: "Ny dør?", questionType: "yes_no", priceItemCode: "TOM-009" },
-      { prompt: "Nytt vindu", questionType: "choice", choices: ["Nei", "Inntil 70x70", "Inntil 120x120"] },
-      { prompt: "Ny himling?", questionType: "yes_no", priceItemCode: "TOM-004" },
-      { prompt: "Kommentar tømrer", questionType: "text" },
-    ],
-  },
-  {
-    tradeCode: "elektriker",
-    name: "Elektriker",
-    items: [
-      { prompt: "Antall downlights", questionType: "number", priceItemCode: "EL-002" },
-      { prompt: "Varmekabler i gulv?", questionType: "yes_no", priceItemCode: "EL-009" },
-      { prompt: "Antall doble stikkontakter", questionType: "number", priceItemCode: "EL-006" },
-      { prompt: "Kommentar elektriker", questionType: "text" },
-    ],
-  },
-  {
-    tradeCode: "rorlegger",
-    name: "Rørlegger",
-    items: [
-      { prompt: "Sluktype", questionType: "choice", choices: ["Standard sluk", "Slukrenne", "Hjørnesluk"], priceItemCode: "ROR-011" },
-      { prompt: "Avstand fra sluk til nærmeste vegg", questionType: "measurement", unit: "m" },
-      { prompt: "Eksisterende rør-i-rør beholdes?", questionType: "yes_no", priceItemCode: "ROR-019" },
-      { prompt: "Bereder", questionType: "choice", choices: ["Ingen ny", "120 L", "200 L", "300 L", "Smart 200", "Smart 300"] },
-      { prompt: "Antall vannpunkt", questionType: "number", priceItemCode: "ROR-018" },
-      { prompt: "Kommentar rørlegger", questionType: "text" },
-    ],
-  },
-  {
-    tradeCode: "murer",
-    name: "Murer/flis",
-    items: [
-      { prompt: "Skal det flislegges?", questionType: "yes_no", priceItemCode: "MUR-002" },
-      { prompt: "Flistype", questionType: "choice", choices: ["Standard", "Storformat", "Småflis", "Gulvbelegg"] },
-      { prompt: "Kommentar murer/flis", questionType: "text" },
-    ],
-  },
-  {
-    tradeCode: "maler",
-    name: "Maler",
-    items: [
-      { prompt: "Sparkling og maling av himling?", questionType: "yes_no", priceItemCode: "MAL-005" },
-      { prompt: "Aquapro-membran utføres av maler?", questionType: "yes_no", priceItemCode: "MAL-002" },
-      { prompt: "Kommentar maler", questionType: "text" },
-    ],
-  },
-];
-
 async function ensureDealProjectSplit() {
   const day = (iso: string) => new Date(`${iso}T12:00:00.000Z`);
-  await prisma.projectPhase.updateMany({
-    where: { id: PHASE.mottatt, rottenDays: null },
-    data: { rottenDays: 21 },
-  });
-  await prisma.project.updateMany({
-    where: { id: id(2, "60000000"), plannedEndDate: null },
-    data: { plannedEndDate: day("2026-10-01"), phaseEnteredAt: day("2026-09-01") },
-  });
   const personId = id(7, "40000000");
   await prisma.person.upsert({
     where: { id: personId },
@@ -267,13 +200,8 @@ async function ensureDealProjectSplit() {
 async function main() {
   const done = await prisma.appSetting.findUnique({ where: { key: "seed_complete" } });
   if (done && process.env.SEED_FORCE !== "1") {
-    await prisma.stage.updateMany({
-      where: { id: STAGE.befaring },
-      data: { probability: 40, rottenDays: 14 },
-    });
-    await ensureDealProjectSplit();
-    await ensureInsights(prisma);
-    console.log("Seed finnes allerede. Hoppet over. Sett SEED_FORCE=1 for å kjøre på nytt (upsert).");
+    await repeatSeed();
+    console.log("Seed finnes allerede. Manglende rader er sikret, uten å overskrive endringer. Sett SEED_FORCE=1 for full upsert.");
     return;
   }
   const password = process.env.SEED_PASSWORD ?? (process.env.NODE_ENV === "production" ? "" : "bytt-meg-lokalt");
@@ -312,7 +240,7 @@ async function main() {
       "Har brukt oss før",
       "Instagram/Facebook",
       "MittAnbud",
-      "Mittanbud XL",
+      "MittAnbud XL",
       "Tok direkte kontakt på tlf/mail",
       "Anbefalt via Flisbutikk/Leverandør",
       "Rørkjøp Arbeidsformidling",
@@ -360,7 +288,11 @@ async function main() {
     { id: STAGE.forhandling, pipelineId: PIPE.borett, name: "Forhandling startet", sortOrder: 4, probability: 40, rottenDays: null },
   ];
   for (const stage of stages) {
-    await prisma.stage.upsert({ where: { id: stage.id }, update: stage, create: stage });
+    await prisma.stage.upsert({
+      where: { id: stage.id },
+      update: { name: stage.name, sortOrder: stage.sortOrder, pipelineId: stage.pipelineId },
+      create: stage,
+    });
   }
 
   await prisma.projectBoard.upsert({
@@ -400,8 +332,8 @@ async function main() {
   for (const trade of TRADES) {
     await prisma.trade.upsert({
       where: { id: trade.code },
-      update: { name: trade.name, sortOrder: trade.sort, code: trade.code },
-      create: { id: trade.code, code: trade.code, name: trade.name, sortOrder: trade.sort },
+      update: { name: trade.name, code: trade.code },
+      create: { id: trade.code, code: trade.code, name: trade.name, sortOrder: trade.sort, subcontractor: trade.code === "elektriker" },
     });
   }
   const csv = readFileSync(join(here, "data/prisposter.csv"), "utf8");
@@ -410,15 +342,37 @@ async function main() {
     name: "Prisliste 2026",
     validFrom: "2026-08-11",
   });
+  const commercial = priceList.commercial;
   await prisma.priceList.upsert({
     where: { id: priceList.id },
-    update: { name: priceList.name, status: "active", comment: "Importert fra prisposter.csv. Salgspris følger regnearket." },
+    update: {
+      name: priceList.name,
+      status: "active",
+      comment: "Importert fra prisposter.csv. Salgspris følger regnearket.",
+      vatRate: commercial?.vatRate,
+      byggstartPercent: commercial?.byggstartPercent,
+      byggstartFactor: commercial?.byggstartFactor,
+      mittanbudPercent: commercial?.mittanbudPercent,
+      mittanbudFactor: commercial?.mittanbudFactor,
+      extraCalloutNok: commercial?.extraCalloutNok,
+      tileAllowanceExVat: commercial?.tileAllowanceExVat,
+      electricianCostFactor: commercial?.electricianCostFactor,
+    },
     create: {
       id: priceList.id,
       name: priceList.name,
       validFrom: new Date("2026-08-11"),
       status: "active",
       comment: "Importert fra prisposter.csv. Gyldig fra revisjonen 11.08.2026. Salgspris følger regnearket der underarket avviker.",
+      vatRate: commercial?.vatRate,
+      byggstartPercent: commercial?.byggstartPercent,
+      byggstartFactor: commercial?.byggstartFactor,
+      mittanbudPercent: commercial?.mittanbudPercent,
+      mittanbudFactor: commercial?.mittanbudFactor,
+      extraCalloutNok: commercial?.extraCalloutNok,
+      tileAllowanceExVat: commercial?.tileAllowanceExVat,
+      electricianCostFactor: commercial?.electricianCostFactor,
+      assemblyHourlyNok: commercial?.assemblyHourlyNok ?? 1450,
     },
   });
   for (const rate of DEFAULT_TRADE_RATES) {
@@ -453,6 +407,8 @@ async function main() {
         internalNote: line.internalNote,
         quantityFormula: line.quantityFormula,
         tradeId: line.tradeCode,
+        splitConfidence: line.splitConfidence ?? "known",
+        splitNote: line.splitNote ?? null,
       },
       create: {
         id: line.code,
@@ -466,6 +422,8 @@ async function main() {
         customerVisible: line.customerVisible,
         internalNote: line.internalNote,
         quantityFormula: line.quantityFormula,
+        splitConfidence: line.splitConfidence ?? "known",
+        splitNote: line.splitNote ?? null,
       },
     });
     const existingLine = await prisma.priceLine.findUnique({
@@ -486,10 +444,9 @@ async function main() {
   const templateId = id(1, "80000000");
   await prisma.checklistTemplate.upsert({
     where: { id: templateId },
-    update: { name: "Standardbefaring" },
-    create: { id: templateId, name: "Standardbefaring" },
+    update: {},
+    create: { id: templateId, name: "Tilbudsbefaring" },
   });
-  const itemIds = new Map<string, string>();
   for (const version of [1, 2]) {
     const versionId = id(version, "81000000");
     await prisma.checklistTemplateVersion.upsert({
@@ -504,33 +461,15 @@ async function main() {
     });
     const existingSections = await prisma.checklistSection.count({ where: { versionId } });
     if (existingSections > 0) continue;
-    let sectionIndex = 0;
-    for (const section of checklist) {
-      sectionIndex += 1;
-      const sectionId = id(version * 100 + sectionIndex, "82000000");
-      await prisma.checklistSection.create({
-        data: { id: sectionId, versionId, tradeCode: section.tradeCode, name: section.name, sortOrder: sectionIndex },
-      });
-      let itemIndex = 0;
-      for (const item of section.items) {
-        itemIndex += 1;
-        const itemId = id(version * 1000 + sectionIndex * 10 + itemIndex, "83000000");
-        if (version === 1) itemIds.set(item.prompt, itemId);
-        await prisma.checklistItem.create({
-          data: {
-            id: itemId,
-            sectionId,
-            prompt: item.prompt,
-            questionType: item.questionType,
-            choices: item.choices ?? undefined,
-            unit: item.unit,
-            priceItemCode: item.priceItemCode,
-            required: item.required ?? false,
-            sortOrder: itemIndex,
-          },
-        });
-      }
-    }
+    await writeChecklistVersion(versionId);
+  }
+  const installed = await prisma.checklistItem.findFirst({ where: { itemKey: "kunde.beskrivelse" } });
+  if (installed) {
+    await prisma.appSetting.upsert({
+      where: { key: "checklist_tilbudsbefaring" },
+      update: {},
+      create: { key: "checklist_tilbudsbefaring", value: "1" },
+    });
   }
 
   await prisma.appSetting.upsert({
@@ -566,7 +505,7 @@ async function main() {
     { id: id(1, "50000000"), title: "Eksempelveien 12", valueNok: 420000, ownerId: USERS.noah, personId: id(1, "40000000"), pipelineId: PIPE.salg, stageId: STAGE.sendt, sourceChannel: "Google", plannedStartDate: day("2026-11-16"), stageEnteredAt: day("2026-09-20"), label: null },
     { id: id(2, "50000000"), title: "Fjellstien 4", valueNok: 385000, ownerId: USERS.noah, personId: id(2, "40000000"), pipelineId: PIPE.salg, stageId: STAGE.befaring, sourceChannel: "Anbefalt via venner/bekjente", plannedStartDate: day("2026-12-01"), stageEnteredAt: day("2026-10-16"), label: null },
     { id: id(3, "50000000"), title: "Lyngveien 3", valueNok: 486000, ownerId: USERS.noah, personId: id(3, "40000000"), pipelineId: PIPE.salg, stageId: STAGE.slutt, sourceChannel: "Har brukt oss før", plannedStartDate: day("2026-11-02"), stageEnteredAt: day("2026-09-01"), status: "won" as const, wonAt: day("2026-09-28") },
-    { id: id(4, "50000000"), title: "Havneveien 15", valueNok: 512000, ownerId: USERS.ada, personId: id(4, "40000000"), pipelineId: PIPE.salg, stageId: STAGE.slutt, sourceChannel: "Mittanbud XL", plannedStartDate: day("2026-11-23"), stageEnteredAt: day("2026-10-02"), status: "won" as const, wonAt: day("2026-10-10"), label: "Byggstart" },
+    { id: id(4, "50000000"), title: "Havneveien 15", valueNok: 512000, ownerId: USERS.ada, personId: id(4, "40000000"), pipelineId: PIPE.salg, stageId: STAGE.slutt, sourceChannel: "MittAnbud XL", plannedStartDate: day("2026-11-23"), stageEnteredAt: day("2026-10-02"), status: "won" as const, wonAt: day("2026-10-10"), label: "Byggstart" },
     { id: id(5, "50000000"), title: "Demoalleen 7", valueNok: 350000, ownerId: USERS.ada, personId: id(1, "40000000"), pipelineId: PIPE.salg, stageId: STAGE.inn, sourceChannel: "Tok direkte kontakt på tlf/mail", plannedStartDate: day("2027-01-12"), stageEnteredAt: day("2026-10-17") },
     { id: id(6, "50000000"), title: "Prøvebakken 2", valueNok: 455000, ownerId: USERS.noah, personId: id(2, "40000000"), pipelineId: PIPE.salg, stageId: STAGE.kunde, sourceChannel: "Instagram/Facebook", plannedStartDate: day("2026-12-07"), stageEnteredAt: day("2026-10-05") },
     { id: id(7, "50000000"), title: "Fiktivveien 9", valueNok: 275000, ownerId: USERS.eirik, personId: id(4, "40000000"), pipelineId: PIPE.salg, stageId: STAGE.oss, sourceChannel: "Byggstart", plannedStartDate: null, stageEnteredAt: day("2026-10-01"), status: "lost" as const, lostAt: day("2026-10-12"), lostReason: "Pris (konkurrent)" },
@@ -750,24 +689,6 @@ async function main() {
       fieldUpdatedAt: { body: when.toISOString(), internal: when.toISOString() },
     },
   });
-  const answerItem = itemIds.get("Ny dør?");
-  if (answerItem) {
-    await prisma.checklistAnswer.upsert({
-      where: { id: id(1, "75000000") },
-      update: {},
-      create: {
-        id: id(1, "75000000"),
-        inspectionId,
-        itemId: answerItem,
-        value: true,
-        freeText: "Hvit glatt dør, samme slagretning som i dag.",
-        internalNote: "Intern: sjekk om karm er skjev før vi lover fastpris.",
-        updatedAt: when,
-        fieldUpdatedAt: { value: when.toISOString() },
-      },
-    });
-  }
-
   const activities: { id: string; dealId: string; type: ActivityType; subject: string; dueAt: Date; done: boolean }[] = [
     { id: id(1, "51000000"), dealId: id(1, "50000000"), type: "call", subject: "Følg opp tilbud Eksempelveien", dueAt: day("2026-10-20"), done: false },
     { id: id(2, "51000000"), dealId: id(2, "50000000"), type: "meeting", subject: "Befaring Fjellstien 4", dueAt: day("2026-10-21"), done: false },
@@ -780,8 +701,7 @@ async function main() {
     });
   }
 
-  await ensureDealProjectSplit();
-  await ensureInsights(prisma);
+  await repeatSeed();
 
   await prisma.appSetting.upsert({
     where: { key: "seed_complete" },
@@ -791,11 +711,176 @@ async function main() {
   console.log("Seed fullført. Demo-brukere bruker passordet fra SEED_PASSWORD.");
 }
 
-main()
-  .catch((error) => {
-    console.error(error);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
+/** Kjøres ved hver oppstart når seed allerede er lagt inn. Oppretter bare det som mangler. */
+export async function repeatSeed() {
+  await ensureDealProjectSplit();
+  await ensureInsights(prisma);
+  await ensurePhase2(prisma);
+  await ensureTilbudsbefaring();
+  await ensureVidarPrisfelt();
+  await ensureTextBlocks(prisma);
+  await ensureQuoteLetterhead();
+  await ensureDemoBefaring(prisma);
+}
+
+/** Oppretter bare manglende nøkler, så en redigert bunntekst ikke skrives over. */
+async function ensureQuoteLetterhead() {
+  const rows: [string, string][] = [
+    ["quote_place", DEFAULT_QUOTE_LETTERHEAD.place],
+    ["quote_company_name", DEFAULT_QUOTE_LETTERHEAD.legalName],
+    ["quote_company_org", DEFAULT_QUOTE_LETTERHEAD.orgNr],
+    ["quote_company_address", DEFAULT_QUOTE_LETTERHEAD.address],
+    ["quote_company_web", DEFAULT_QUOTE_LETTERHEAD.web],
+    ["quote_company_phone", DEFAULT_QUOTE_LETTERHEAD.phone],
+    ["quote_company_email", DEFAULT_QUOTE_LETTERHEAD.email],
+  ];
+  for (const [key, value] of rows) {
+    await prisma.appSetting.upsert({ where: { key }, update: {}, create: { key, value } });
+  }
+}
+
+async function writeChecklistVersion(versionId: string) {
+  let sortOrder = 0;
+  for (const section of TILBUDSBEFARING) {
+    sortOrder += 1;
+    await prisma.checklistSection.create({
+      data: {
+        versionId,
+        tradeCode: section.tradeCode,
+        name: section.name,
+        sortOrder,
+        items: {
+          create: section.items.map((item, index) => ({
+            prompt: item.prompt,
+            helpText: item.helpText ?? null,
+            questionType: item.questionType as QuestionType,
+            required: Boolean(item.required),
+            choices: item.choices ?? undefined,
+            unit: item.unit ?? null,
+            itemKey: item.key,
+            config: (item.config ?? undefined) as Prisma.InputJsonValue | undefined,
+            sortOrder: index + 1,
+          })),
+        },
+      },
+    });
+  }
+}
+
+/** Engangsoppgradering. Når flagget er satt, rører ikke seed sjekklisten igjen. */
+async function ensureTilbudsbefaring() {
+  const flag = await prisma.appSetting.findUnique({ where: { key: "checklist_tilbudsbefaring" } });
+  if (flag) return;
+  const template = await prisma.checklistTemplate.findFirst({ orderBy: { name: "asc" } });
+  if (!template) return;
+  if (template.name === "Standardbefaring") {
+    await prisma.checklistTemplate.update({ where: { id: template.id }, data: { name: "Tilbudsbefaring" } });
+  }
+  const published = await prisma.checklistTemplateVersion.findFirst({
+    where: { templateId: template.id, publishedAt: { not: null } },
+    orderBy: { version: "desc" },
+    include: { sections: { include: { items: true } } },
   });
+  const installed = published?.sections.some((section) => section.items.some((item) => item.itemKey === "kunde.beskrivelse"));
+  if (!installed) {
+    const latest = await prisma.checklistTemplateVersion.findFirst({ where: { templateId: template.id }, orderBy: { version: "desc" } });
+    const version = (latest?.version ?? 0) + 1;
+    const created = await prisma.checklistTemplateVersion.create({
+      data: { templateId: template.id, version, publishedAt: new Date() },
+    });
+    await writeChecklistVersion(created.id);
+    const draft = await prisma.checklistTemplateVersion.create({
+      data: { templateId: template.id, version: version + 1 },
+    });
+    await writeChecklistVersion(draft.id);
+  }
+  await prisma.appSetting.upsert({
+    where: { key: "checklist_tilbudsbefaring" },
+    update: {},
+    create: { key: "checklist_tilbudsbefaring", value: new Date().toISOString() },
+  });
+}
+
+/** Nye prisposter og én ny sjekklisteversjon. Eksisterende rader oppdateres ikke. */
+async function ensureVidarPrisfelt() {
+  const listId = id(1, "30000000");
+  const list = await prisma.priceList.findUnique({ where: { id: listId } });
+  if (list) {
+    for (const line of VIDAR_PRICE_LINES) {
+      await prisma.priceItem.upsert({
+        where: { code: line.code },
+        update: {},
+        create: {
+          id: line.code,
+          code: line.code,
+          tradeId: line.tradeCode,
+          name: line.name,
+          unit: line.unit,
+          type: line.type,
+          sortOrder: line.sortOrder,
+          active: line.active,
+          customerVisible: line.customerVisible,
+          internalNote: line.internalNote,
+          quantityFormula: line.quantityFormula,
+          splitConfidence: line.splitConfidence ?? "known",
+          splitNote: line.splitNote ?? null,
+        },
+      });
+      await prisma.priceLine.upsert({
+        where: { priceListId_priceItemId: { priceListId: list.id, priceItemId: line.code } },
+        update: {},
+        create: {
+          priceListId: list.id,
+          priceItemId: line.code,
+          materialCost: line.materialCost,
+          materialMarkup: line.materialMarkup,
+          hoursPerUnit: line.hoursPerUnit,
+          hourlyRateOverride: line.hourlyRateOverride,
+          salePriceOverride: line.salePriceOverride,
+          costFormula: line.costFormula,
+        },
+      });
+    }
+  }
+  const flag = await prisma.appSetting.findUnique({ where: { key: "checklist_prisfelt" } });
+  if (flag) return;
+  const template = await prisma.checklistTemplate.findFirst({ orderBy: { name: "asc" } });
+  if (!template) return;
+  const published = await prisma.checklistTemplateVersion.findFirst({
+    where: { templateId: template.id, publishedAt: { not: null } },
+    orderBy: { version: "desc" },
+    include: { sections: { include: { items: true } } },
+  });
+  const items = published?.sections.flatMap((section) => section.items) ?? [];
+  const tildekking = items.find((item) => item.itemKey === "riving.tildekking");
+  const mapped = JSON.stringify(tildekking?.config ?? "").includes('"RIV-004"') && items.some((item) => item.itemKey === "mal.annet_m2");
+  if (!mapped) {
+    const latest = await prisma.checklistTemplateVersion.findFirst({ where: { templateId: template.id }, orderBy: { version: "desc" } });
+    const version = (latest?.version ?? 0) + 1;
+    const created = await prisma.checklistTemplateVersion.create({
+      data: { templateId: template.id, version, publishedAt: new Date() },
+    });
+    await writeChecklistVersion(created.id);
+    const draft = await prisma.checklistTemplateVersion.create({
+      data: { templateId: template.id, version: version + 1 },
+    });
+    await writeChecklistVersion(draft.id);
+  }
+  await prisma.appSetting.upsert({
+    where: { key: "checklist_prisfelt" },
+    update: {},
+    create: { key: "checklist_prisfelt", value: new Date().toISOString() },
+  });
+}
+
+const invokedDirectly = process.argv[1]?.endsWith("seed.ts") || process.argv[1]?.endsWith("seed.js");
+if (invokedDirectly) {
+  main()
+    .catch((error) => {
+      console.error(error);
+      process.exit(1);
+    })
+    .finally(async () => {
+      await prisma.$disconnect();
+    });
+}

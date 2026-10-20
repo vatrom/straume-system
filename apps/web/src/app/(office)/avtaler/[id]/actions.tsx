@@ -3,6 +3,37 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+export function NewInspectionButton({ dealId }: { dealId: string }) {
+  const router = useRouter();
+  const [error, setError] = useState("");
+  const [pending, setPending] = useState(false);
+  return (
+    <div className="stack">
+      <button
+        className="btn primary"
+        type="button"
+        disabled={pending}
+        onClick={async () => {
+          setPending(true);
+          setError("");
+          const response = await fetch(`/api/deals/${dealId}/inspection`, { method: "POST" });
+          const data = await response.json().catch(() => ({}));
+          setPending(false);
+          if (!response.ok || !data.id) {
+            setError(data.error ?? "Kunne ikke opprette befaring");
+            return;
+          }
+          router.push(`/befaring/${data.id}/skjema`);
+          router.refresh();
+        }}
+      >
+        Ny befaring
+      </button>
+      {error ? <p className="error">{error}</p> : null}
+    </div>
+  );
+}
+
 export function CreateProjectButton({ id }: { id: string }) {
   const router = useRouter();
   const [error, setError] = useState("");

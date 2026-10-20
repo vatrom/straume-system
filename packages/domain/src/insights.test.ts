@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { areaFromPostal, measureGoal, normalizeSpec, runInsight, type InsightDeal, type StageCatalogItem, type StageMove } from "./insights";
+import { areaFromPostal, measureGoal, normalizeSpec, runInsight, type InsightDeal, type InsightQuote, type StageCatalogItem, type StageMove } from "./insights";
 
 const now = new Date("2026-10-18T12:00:00.000Z");
 const stages: StageCatalogItem[] = [
@@ -121,6 +121,25 @@ describe("salgsstatistikk", () => {
     const goal = measureGoal(deals, { ownerId: "a", start: "2026-01-01", end: "2026-12-31", metric: "sum", target: 200000 });
     expect(goal.actual).toBe(100000);
     expect(goal.ratio).toBe(0.5);
+  });
+
+  it("regner antall, snitt, margin og hit rate for tilbud", () => {
+    const quotes: InsightQuote[] = [
+      { id: "q1", dealId: "w1", status: "accepted", valueIncVat: 400000, marginExVat: 0.4, createdAt: "2026-03-01T12:00:00.000Z", decidedAt: "2026-03-20T12:00:00.000Z", ownerId: "a", ownerName: "Ada Berg", source: "Byggstart", area: "Straume" },
+      { id: "q2", dealId: "lost", status: "rejected", valueIncVat: 200000, marginExVat: 0.2, createdAt: "2026-04-01T12:00:00.000Z", decidedAt: "2026-04-20T12:00:00.000Z", ownerId: "n", ownerName: "Noah Lien", source: "MittAnbud", area: "Straume" },
+      { id: "q3", dealId: "open", status: "sent", valueIncVat: 300000, marginExVat: 0.5, createdAt: "2026-05-01T12:00:00.000Z", decidedAt: null, ownerId: "a", ownerName: "Ada Berg", source: "Byggstart", area: "Straume" },
+      { id: "q4", dealId: null, status: "draft", valueIncVat: 999999, marginExVat: 0.9, createdAt: "2026-05-02T12:00:00.000Z", decidedAt: null, ownerId: "a", ownerName: "Ada Berg", source: "Byggstart", area: "Straume" },
+    ];
+    const count = runInsight(deals, [], [], stages, { kind: "quotes", measure: "count", groupBy: "seller", period: "this_year", view: "bar" }, now, quotes);
+    expect(count.total).toBe(3);
+    const average = runInsight(deals, [], [], stages, { kind: "quotes", measure: "avg", groupBy: "none", period: "this_year", view: "kpi" }, now, quotes);
+    expect(average.total).toBe(300000);
+    const margin = runInsight(deals, [], [], stages, { kind: "quote_margin", period: "this_year", view: "kpi" }, now, quotes);
+    expect(margin.unit).toBe("percent");
+    expect(margin.total).toBeCloseTo((40 + 20 + 50) / 3, 1);
+    const hit = runInsight(deals, [], [], stages, { kind: "quote_hit", period: "this_year", view: "kpi" }, now, quotes);
+    expect(hit.total).toBe(50);
+    expect(hit.dealIds).toEqual(["w1", "lost"]);
   });
 
   it("normaliserer ukjent rapport og utleder område fra postnummer", () => {

@@ -106,6 +106,20 @@ describe("synk", () => {
     expect(stale.conflicts[0]?.reason).toBe("stale_delete");
   });
 
+  it("lagrer en befaring på salgsavtale uten prosjekt", () => {
+    const created = applyMutation(null, {
+      entity: "inspection",
+      op: "upsert",
+      id: "befaring01",
+      updatedAt: "2026-10-18T10:00:00.000Z",
+      payload: { dealId: "deal-1001", status: "draft" },
+    });
+    expect(created.conflicts).toEqual([]);
+    expect(created.record?.fields.dealId?.value).toBe("deal-1001");
+    expect(created.record?.fields.projectId).toBeUndefined();
+    expect(created.record?.fields.status?.value).toBe("draft");
+  });
+
   it("setter interne notater og media til interne når flagget mangler", () => {
     const created = applyMutation(null, {
       entity: "note",

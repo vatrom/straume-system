@@ -4,7 +4,7 @@ import { Text } from "react-native";
 import { loadDb, localId, saveDb } from "./db";
 import { Button } from "./ui";
 
-export function VoiceNote({ projectId, roomId, floorId, inspectionId, internal }: { projectId: string; roomId: string; floorId: string; inspectionId: string; internal: boolean }) {
+export function VoiceNote({ projectId, dealId = "", roomId, floorId, inspectionId, internal }: { projectId: string; dealId?: string; roomId: string; floorId: string; inspectionId: string; internal: boolean }) {
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const [on, setOn] = useState(false);
   const [message, setMessage] = useState("");
@@ -33,6 +33,7 @@ export function VoiceNote({ projectId, roomId, floorId, inspectionId, internal }
       name: "stemme.m4a",
       mimeType: "audio/mp4",
       projectId,
+      dealId,
       kind: "voice",
       internal,
       roomId,

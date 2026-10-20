@@ -1,6 +1,7 @@
 import { prisma, type QuestionType } from "@straume/db";
-import { DomainError, TRADES } from "@straume/domain";
+import { asItemConfig, DomainError, QUESTION_TYPES, TRADE_CODES, TRADES, type ItemConfig } from "@straume/domain";
 import { audit } from "./audit";
+import { reorderTrades } from "./trades";
 import { assertAdmin } from "./roles";
 
 export type DraftSection = {
@@ -14,10 +15,12 @@ export type DraftSection = {
     unit?: string | null;
     priceItemCode?: string | null;
     helpText?: string | null;
+    itemKey?: string | null;
+    config?: ItemConfig | null;
   }[];
 };
 
-const QUESTION_TYPES = new Set<QuestionType>(["yes_no", "number", "measurement", "choice", "text"]);
+const QUESTION_TYPE_SET = new Set<string>(QUESTION_TYPES);
 
 export function validateDraft(sections: DraftSection[]): void {
   if (sections.length === 0) throw new DomainError("Sjekklisten må ha minst én seksjon");
@@ -28,9 +31,13 @@ export function validateDraft(sections: DraftSection[]): void {
     if (section.items.length === 0) throw new DomainError(`«${section.name}» har ingen spørsmål`);
     section.items.forEach((item) => {
       if (!item.prompt.trim()) throw new DomainError("Spørsmålet må ha en tekst");
-      if (!QUESTION_TYPES.has(item.questionType)) throw new DomainError("Ukjent spørsmålstype");
-      if (item.questionType === "choice" && (!item.choices || item.choices.filter(Boolean).length < 2)) {
+      if (!QUESTION_TYPE_SET.has(item.questionType)) throw new DomainError("Ukjent spørsmålstype");
+      if ((item.questionType === "choice" || item.questionType === "multi") && (!item.choices || item.choices.filter(Boolean).length < 2)) {
         throw new DomainError(`«${item.prompt}» må ha minst to valg`);
+      }
+      if (item.config?.showWhen?.itemKey) {
+        const keys = sections.flatMap((row) => row.items.map((entry) => entry.itemKey).filter(Boolean));
+        if (!keys.includes(item.config.showWhen.itemKey)) throw new DomainError(`«${item.prompt}» viser til et ukjent felt`);
       }
     });
   });
@@ -70,6 +77,8 @@ async function draftVersion() {
                 sortOrder: item.sortOrder,
                 unit: item.unit,
                 priceItemCode: item.priceItemCode,
+                itemKey: item.itemKey,
+                config: item.config ?? undefined,
               })),
             },
           })),
@@ -115,6 +124,8 @@ export async function saveDraft(user: { id: string; role: string }, sections: Dr
               unit: item.unit || null,
               priceItemCode: item.priceItemCode || null,
               helpText: item.helpText || null,
+              itemKey: item.itemKey || null,
+              config: item.config ?? undefined,
               sortOrder: index + 1,
             })),
           },
@@ -123,6 +134,13 @@ export async function saveDraft(user: { id: string; role: string }, sections: Dr
     }
   });
   await audit(user.id, "checklist.save", "checklist", draft.id);
+    const seen: string[] = [];
+  for (const section of sections) {
+    if (section.tradeCode === "annet" || seen.includes(section.tradeCode)) continue;
+    seen.push(section.tradeCode);
+  }
+  const rest = TRADE_CODES.filter((code) => !seen.includes(code));
+  await reorderTrades(user, [...seen, ...rest]);
   return draftVersion();
 }
 
@@ -150,6 +168,8 @@ export async function publishChecklist(user: { id: string; role: string }) {
               sortOrder: item.sortOrder,
               unit: item.unit,
               priceItemCode: item.priceItemCode,
+              itemKey: item.itemKey,
+              config: item.config ?? undefined,
             })),
           },
         })),
@@ -188,6 +208,9 @@ export async function publishedChecklist() {
         unit: item.unit,
         sortOrder: item.sortOrder,
         priceItemCode: item.priceItemCode,
+        helpText: item.helpText,
+        itemKey: item.itemKey,
+        config: asItemConfig(item.config),
       })),
     })),
   };

@@ -1,6 +1,7 @@
 "use client";
 
 import { TRADES } from "@straume/domain";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -15,17 +16,57 @@ type Line = {
   hoursPerUnit: number;
   salePriceOverride: number | null;
   salePriceExVat: number;
+  splitConfidence: string;
+  splitNote: string | null;
+  hasBom: boolean;
+  bomFlags: string[];
+  active: boolean;
 };
 
-export function PriceEditor({ listId, status, lines }: { listId: string; status: string; lines: Line[] }) {
+const SPLIT: Record<string, string> = { known: "Kjent", derived: "Utledet", uncertain: "Må kontrolleres" };
+
+type Commercial = {
+  vatRate: number;
+  byggstartPercent: number;
+  mittanbudPercent: number;
+  extraCalloutNok: number | null;
+  tileAllowanceExVat: number | null;
+};
+
+type Rate = { tradeCode: string; hourlyRateSale: number; calloutPrice: number | null };
+
+export function PriceEditor({
+  listId,
+  status,
+  commercial,
+  rates,
+  lines,
+}: {
+  listId: string;
+  status: string;
+  commercial: Commercial;
+  rates: Rate[];
+  lines: Line[];
+}) {
   const router = useRouter();
   const [message, setMessage] = useState("");
   const [trade, setTrade] = useState("alle");
-  const visible = trade === "alle" ? lines : lines.filter((line) => line.tradeCode === trade);
+  const [query, setQuery] = useState("");
+  const [onlyFlagged, setOnlyFlagged] = useState(false);
+  const needle = query.trim().toLowerCase();
+  const visible = lines.filter((line) => {
+    if (trade !== "alle" && line.tradeCode !== trade) return false;
+    if (onlyFlagged && line.splitConfidence !== "uncertain" && line.bomFlags.length === 0) return false;
+    if (!needle) return true;
+    return `${line.code} ${line.name}`.toLowerCase().includes(needle);
+  });
 
   async function send(path: string, body: unknown) {
     const response = await fetch(path, {
-      method: path.endsWith("/activate") ? "POST" : path.includes("/lines/") ? "PATCH" : "POST",
+      method:
+        (path.includes("/lines/") && !path.endsWith("/archive")) || path.endsWith("/commercial") || path.includes("/rates/")
+          ? "PATCH"
+          : "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
@@ -34,8 +75,91 @@ export function PriceEditor({ listId, status, lines }: { listId: string; status:
     return data;
   }
 
+  const tileInk = commercial.tileAllowanceExVat == null ? null : Math.round(commercial.tileAllowanceExVat * (1 + commercial.vatRate));
   return (
     <div className="stack">
+      <form
+        className="card stack"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          const form = new FormData(event.currentTarget);
+          try {
+            await send(`/api/price-lists/${listId}/commercial`, {
+              byggstartPercent: Number(form.get("byggstartPercent")),
+              mittanbudPercent: Number(form.get("mittanbudPercent")),
+              extraCalloutNok: Number(form.get("extraCalloutNok")),
+              tileAllowanceExVat: Number(form.get("tileAllowanceExVat")),
+            });
+            window.location.reload();
+          } catch (error) {
+            setMessage(error instanceof Error ? error.message : "Feil");
+          }
+        }}
+      >
+        <h2>Kilde og felles satser</h2>
+        <p className="muted">
+          Kildetillegget er prosent av sum eks. mva, før mva. Flis mot kunde vises inkl. mva
+          {tileInk != null ? ` (${tileInk.toLocaleString("nb-NO")} kr)` : ""}.
+        </p>
+        <div className="row">
+          <label className="field">
+            <span>Byggstart %</span>
+            <input name="byggstartPercent" type="number" step="0.1" min="0" max="100" defaultValue={commercial.byggstartPercent * 100} />
+          </label>
+          <label className="field">
+            <span>MittAnbud XL %</span>
+            <input name="mittanbudPercent" type="number" step="0.1" min="0" max="100" defaultValue={commercial.mittanbudPercent * 100} />
+          </label>
+          <label className="field">
+            <span>Ekstra oppmøte eks. mva</span>
+            <input name="extraCalloutNok" type="number" step="1" min="0" defaultValue={commercial.extraCalloutNok ?? ""} />
+          </label>
+          <label className="field">
+            <span>Flis kr/m² eks. mva</span>
+            <input name="tileAllowanceExVat" type="number" step="1" min="0" defaultValue={commercial.tileAllowanceExVat ?? ""} />
+          </label>
+          <button className="btn" type="submit">
+            Lagre satser
+          </button>
+        </div>
+      </form>
+      <section className="card stack">
+        <h2>Timepris og oppmøte per fag</h2>
+        <p className="muted">Tomt oppmøtefelt bruker den felles satsen. Et tall overstyrer bare det faget.</p>
+        {rates.map((rate) => (
+          <form
+            key={rate.tradeCode}
+            className="row"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              const form = new FormData(event.currentTarget);
+              const callout = String(form.get("calloutPrice") ?? "").trim();
+              try {
+                await send(`/api/price-lists/${listId}/rates/${rate.tradeCode}`, {
+                  hourlyRateSale: Number(form.get("hourlyRateSale")),
+                  calloutPrice: callout === "" ? null : Number(callout),
+                });
+                setMessage("Fagsats lagret");
+              } catch (error) {
+                setMessage(error instanceof Error ? error.message : "Feil");
+              }
+            }}
+          >
+            <strong style={{ minWidth: "8rem" }}>{TRADES.find((trade) => trade.code === rate.tradeCode)?.name ?? rate.tradeCode}</strong>
+            <label className="field">
+              <span>Timepris eks. mva</span>
+              <input name="hourlyRateSale" type="number" step="1" min="0" defaultValue={rate.hourlyRateSale} />
+            </label>
+            <label className="field">
+              <span>Oppmøte, overstyring</span>
+              <input name="calloutPrice" type="number" step="1" min="0" placeholder="Felles sats" defaultValue={rate.calloutPrice ?? ""} />
+            </label>
+            <button className="btn" type="submit">
+              Lagre
+            </button>
+          </form>
+        ))}
+      </section>
       {status !== "active" ? (
         <button
           className="btn primary"
@@ -103,13 +227,64 @@ export function PriceEditor({ listId, status, lines }: { listId: string; status:
         onSubmit={async (event) => {
           event.preventDefault();
           const form = new FormData(event.currentTarget);
+          const selected = form.getAll("scope").map(String);
+          try {
+            await send(`/api/price-lists/${listId}/components`, {
+              name: form.get("name"),
+              validFrom: form.get("validFrom"),
+              materialPercent: Number(form.get("materialPercent")),
+              laborPercent: Number(form.get("laborPercent")),
+              tradeCodes: selected.length ? selected : undefined,
+            });
+            router.push("/prislister");
+          } catch (error) {
+            setMessage(error instanceof Error ? error.message : "Feil");
+          }
+        }}
+      >
+        <label className="field">
+          <span>Justering materiell og timer</span>
+          <input name="name" required placeholder="Prisliste materiell/timer" />
+        </label>
+        <label className="field">
+          <span>Gyldig fra</span>
+          <input name="validFrom" type="date" required />
+        </label>
+        <label className="field">
+          <span>Materiell %</span>
+          <input name="materialPercent" type="number" step="0.1" defaultValue={0} />
+        </label>
+        <label className="field">
+          <span>Timepris %</span>
+          <input name="laborPercent" type="number" step="0.1" defaultValue={0} />
+        </label>
+        {TRADES.filter((item) => item.code !== "annet").map((item) => (
+          <label key={`scope-${item.code}`} className="field">
+            <span>{item.name}</span>
+            <input name="scope" type="checkbox" value={item.code} />
+          </label>
+        ))}
+        <button className="btn" type="submit">
+          Ny versjon med delt justering
+        </button>
+      </form>
+      <div className="row">
+        <a className="btn" href={`/api/price-lists/${listId}/excel`}>
+          Last ned Excel
+        </a>
+      </div>
+      <form
+        className="card row"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          const form = new FormData(event.currentTarget);
           try {
             await send(`/api/price-lists/${listId}/items`, {
               code: form.get("code"),
               name: form.get("name"),
               tradeCode: form.get("tradeCode"),
               unit: form.get("unit"),
-              type: "standard",
+              type: "unit_price",
               materialCost: Number(form.get("materialCost") || 0),
               hoursPerUnit: Number(form.get("hoursPerUnit") || 0),
             });
@@ -162,6 +337,10 @@ export function PriceEditor({ listId, status, lines }: { listId: string; status:
             </option>
           ))}
         </select>
+        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Søk kode eller navn" />
+        <label>
+          <input type="checkbox" checked={onlyFlagged} onChange={(event) => setOnlyFlagged(event.target.checked)} /> Bare merkede
+        </label>
       </div>
       <div className="card" style={{ overflowX: "auto" }}>
         <table>
@@ -174,6 +353,7 @@ export function PriceEditor({ listId, status, lines }: { listId: string; status:
               <th>Påslag</th>
               <th>Timer</th>
               <th>Salgspris</th>
+              <th>Splitt</th>
               <th></th>
             </tr>
           </thead>
@@ -184,7 +364,7 @@ export function PriceEditor({ listId, status, lines }: { listId: string; status:
                 <td>{line.name}</td>
                 <td>{line.unit}</td>
                 <td>
-                  <input id={`m-${line.itemId}`} defaultValue={line.materialCost} style={{ width: 90 }} />
+                  <input id={`m-${line.itemId}`} defaultValue={line.materialCost} style={{ width: 90 }} disabled={line.hasBom} />
                 </td>
                 <td>
                   <input id={`p-${line.itemId}`} defaultValue={line.materialMarkup ?? ""} style={{ width: 70 }} />
@@ -195,6 +375,13 @@ export function PriceEditor({ listId, status, lines }: { listId: string; status:
                 <td>
                   {line.salePriceExVat.toLocaleString("nb-NO")}
                   {line.salePriceOverride != null ? <div className="muted">overstyrt</div> : null}
+                </td>
+                <td>
+                  <span className={line.splitConfidence === "uncertain" || line.bomFlags.length ? "badge warn" : "badge ok"}>{SPLIT[line.splitConfidence] ?? line.splitConfidence}</span>
+                  {line.hasBom ? <div><Link href={`/prislister/${listId}/poster/${line.code}`}>Stykkliste</Link></div> : <div><Link href={`/prislister/${listId}/poster/${line.code}`}>Legg til stykkliste</Link></div>}
+                  {line.bomFlags.map((flag) => <div key={flag} className="badge missing">{flag}</div>)}
+                  {!line.active ? <div className="muted">arkivert</div> : null}
+                  {line.splitNote ? <div className="muted">{line.splitNote}</div> : null}
                 </td>
                 <td>
                   <button
@@ -218,6 +405,22 @@ export function PriceEditor({ listId, status, lines }: { listId: string; status:
                   >
                     Lagre
                   </button>
+                  {line.active ? (
+                    <button
+                      className="btn ghost"
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          await send(`/api/price-lists/${listId}/lines/${line.itemId}/archive`, {});
+                          window.location.reload();
+                        } catch (error) {
+                          setMessage(error instanceof Error ? error.message : "Feil");
+                        }
+                      }}
+                    >
+                      Arkiver
+                    </button>
+                  ) : null}
                 </td>
               </tr>
             ))}

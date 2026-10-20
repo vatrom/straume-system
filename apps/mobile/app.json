@@ -3,22 +3,59 @@
     "name": "Straume Befaring",
     "slug": "straume-befaring",
     "scheme": "straume",
-    "version": "0.1.0",
+    "version": "1.0.0",
     "orientation": "default",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
-    "plugins": ["expo-router", "expo-secure-store", "expo-sqlite", "expo-audio"],
+    "plugins": [
+      "expo-router",
+      [
+        "expo-secure-store",
+        {
+          "faceIDPermission": "Innloggingen kan beskyttes med Face ID på denne enheten."
+        }
+      ],
+      "expo-sqlite",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Befaringen tar opp stemmenotater som lagres på salgsavtalen eller prosjektet."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Befaringen tar bilder og video som lagres på salgsavtalen eller prosjektet.",
+          "photosPermission": "Du kan hente et eksisterende bilde inn i befaringen. Det kopieres til avtalen eller prosjektet.",
+          "microphonePermission": "Befaringen tar opp stemmenotater som lagres på salgsavtalen eller prosjektet."
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#123e3b",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200
+        }
+      ]
+    ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "no.straume.befaring",
+      "bundleIdentifier": "no.straumevatrom.befaring",
+      "buildNumber": "1",
       "infoPlist": {
-        "NSCameraUsageDescription": "Befaringen tar bilder og video som lagres på prosjektet.",
-        "NSMicrophoneUsageDescription": "Befaringen tar opp stemmenotater som lagres på prosjektet.",
-        "NSPhotoLibraryUsageDescription": "Du kan hente et eksisterende bilde inn i befaringen. Det kopieres til prosjektet og blir ikke liggende som en deling til kamerarullen."
+        "NSCameraUsageDescription": "Befaringen tar bilder og video som lagres på salgsavtalen eller prosjektet.",
+        "NSMicrophoneUsageDescription": "Befaringen tar opp stemmenotater som lagres på salgsavtalen eller prosjektet.",
+        "NSPhotoLibraryUsageDescription": "Du kan hente et eksisterende bilde inn i befaringen. Det kopieres til avtalen eller prosjektet."
       }
     },
     "android": {
-      "package": "no.straume.befaring",
+      "package": "no.straumevatrom.befaring",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#123e3b"
+      },
       "permissions": ["CAMERA", "RECORD_AUDIO"]
     },
     "web": {

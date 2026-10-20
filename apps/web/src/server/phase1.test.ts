@@ -1,11 +1,12 @@
 import { prisma } from "@straume/db";
+import { repeatSeed } from "../../../../packages/db/prisma/seed";
 import { afterAll, describe, expect, it } from "vitest";
 import { isoDate } from "./dates";
 import { addStage, createDeal, createPipeline, createProjectFromDeal, dealsForBoard, editStage, orderStages, removePipeline, removeStage, winDeal } from "./crm";
 import { adjustPriceList, priceListView } from "./price-admin";
 import { queryInsights } from "./insights";
 import { customerView, dashboard, moveProject, updateProject } from "./projects";
-import { pushMutations } from "./sync-service";
+import { pullChanges, pushMutations } from "./sync-service";
 
 const admin = { id: "00000000-0000-4000-8000-000000000001", role: "admin" };
 const projectId = "60000000-0000-4000-8000-000000000001";
@@ -14,14 +15,18 @@ describe("fase 1 mot databasen", () => {
   const created: string[] = [];
   const extraProjects: string[] = [];
   const extraDeals: string[] = [];
+  const extraPeople: string[] = [];
+  const extraInspections: string[] = [];
 
   afterAll(async () => {
     if (created.length) {
       await prisma.priceList.deleteMany({ where: { id: { in: created } } });
       await prisma.note.deleteMany({ where: { id: { in: created } } });
     }
+    if (extraInspections.length) await prisma.inspection.deleteMany({ where: { id: { in: extraInspections } } });
     if (extraProjects.length) await prisma.project.deleteMany({ where: { id: { in: extraProjects } } });
     if (extraDeals.length) await prisma.deal.deleteMany({ where: { id: { in: extraDeals } } });
+    if (extraPeople.length) await prisma.person.deleteMany({ where: { id: { in: extraPeople } } });
     await prisma.$disconnect();
   });
 
@@ -103,6 +108,73 @@ describe("fase 1 mot databasen", () => {
     expect(stale.results[0]?.ok).toBe(true);
     const stored = await prisma.note.findUnique({ where: { id: noteId } });
     expect(stored?.body).toBe("Synktest");
+  });
+
+  it("tar imot befaring på salgsavtale og oppretter avtalen bare én gang", async () => {
+    const dealId = "50000000-0000-4000-8000-000000000001";
+    const inspectionId = `bef-deal-${Date.now().toString(36)}`;
+    extraInspections.push(inspectionId);
+    const visit = new Date().toISOString();
+    const pushed = await pushMutations(admin.id, [
+      {
+        entity: "inspection",
+        op: "upsert",
+        id: inspectionId,
+        updatedAt: visit,
+        payload: { dealId, status: "draft", visitedAt: visit },
+      },
+    ]);
+    expect(pushed.results[0]?.ok).toBe(true);
+    const stored = await prisma.inspection.findUnique({ where: { id: inspectionId } });
+    expect(stored?.dealId).toBe(dealId);
+    expect(stored?.projectId).toBeNull();
+
+    const missing = await pushMutations(admin.id, [
+      {
+        entity: "inspection",
+        op: "upsert",
+        id: `bef-none-${Date.now().toString(36)}`,
+        updatedAt: visit,
+        payload: { status: "draft" },
+      },
+    ]);
+    expect(missing.results[0]?.ok).toBe(false);
+
+    const syncedDealId = `deal-sync-${Date.now().toString(36)}`;
+    extraDeals.push(syncedDealId);
+    const createdDeal = await pushMutations(admin.id, [
+      {
+        entity: "deal",
+        op: "upsert",
+        id: syncedDealId,
+        updatedAt: visit,
+        payload: { customerName: "Kari Nordmann", phone: "90000000", email: "kari@example.test", street: "Testveien 4", postalCode: "5353", city: "Straume", title: "Testveien 4" },
+      },
+    ]);
+    expect(createdDeal.results[0]?.ok).toBe(true);
+    const again = await pushMutations(admin.id, [
+      {
+        entity: "deal",
+        op: "upsert",
+        id: syncedDealId,
+        updatedAt: new Date().toISOString(),
+        payload: { customerName: "Noen Annen", title: "Skal ikke overskrives" },
+      },
+    ]);
+    expect(again.results[0]?.ok).toBe(true);
+    const deal = await prisma.deal.findUnique({ where: { id: syncedDealId }, include: { person: true } });
+    expect(deal?.title).toBe("Testveien 4");
+    expect(deal?.status).toBe("open");
+    expect(deal?.person?.firstName).toBe("Kari");
+    expect(deal?.person?.lastName).toBe("Nordmann");
+    if (deal?.personId) extraPeople.push(deal.personId);
+    expect(await prisma.deal.count({ where: { id: syncedDealId } })).toBe(1);
+
+    const pull = await pullChanges(null);
+    expect(pull.deals.some((item) => item.id === dealId && item.status === "open")).toBe(true);
+    expect(pull.deals.every((item) => item.status === "open")).toBe(true);
+    expect(pull.projects.every((item) => item.status === "open")).toBe(true);
+    expect(pull.deals.some((item) => item.id === syncedDealId)).toBe(true);
   });
 
   it("holder vunne og tapte avtaler ute av salgspipen", async () => {
@@ -188,6 +260,29 @@ describe("fase 1 mot databasen", () => {
     if (!without.project) throw new Error("Mangler prosjekt");
     extraProjects.push(without.project.id);
     expect(without.project.plannedStartDate).toBeNull();
+  });
+
+  it("beholder admin-endringer når seed kjøres på nytt", async () => {
+    const stage = await prisma.stage.findFirstOrThrow({ where: { name: "Befaring avtalt" } });
+    const template = await prisma.textTemplate.findUniqueOrThrow({ where: { key: "intro" } });
+    const previous = { probability: Number(stage.probability), rottenDays: stage.rottenDays, body: template.body };
+    try {
+      await prisma.stage.update({ where: { id: stage.id }, data: { probability: 55, rottenDays: 3 } });
+      await prisma.textTemplate.update({ where: { key: "intro" }, data: { body: "Admin endret innledningen." } });
+      await prisma.$executeRaw`UPDATE "Stage" SET probability = 40, "rottenDays" = 14 WHERE name = 'Befaring avtalt' AND probability = 100`;
+      await repeatSeed();
+      const keptStage = await prisma.stage.findUniqueOrThrow({ where: { id: stage.id } });
+      const keptTemplate = await prisma.textTemplate.findUniqueOrThrow({ where: { key: "intro" } });
+      expect(Number(keptStage.probability)).toBe(55);
+      expect(keptStage.rottenDays).toBe(3);
+      expect(keptTemplate.body).toBe("Admin endret innledningen.");
+    } finally {
+      await prisma.stage.update({
+        where: { id: stage.id },
+        data: { probability: previous.probability, rottenDays: previous.rottenDays },
+      });
+      await prisma.textTemplate.update({ where: { key: "intro" }, data: { body: previous.body } });
+    }
   });
 
   it("beholder fasenavn i historikken og summerer vunne avtaler", async () => {

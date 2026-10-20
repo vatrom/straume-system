@@ -1,4 +1,4 @@
-import { api } from "@/src/api";
+import { API_BASE, api } from "@/src/api";
 import { readToken, writeToken } from "@/src/session";
 import { Button, Card, Field, colors } from "@/src/ui";
 import { useRouter } from "expo-router";
@@ -7,8 +7,9 @@ import { Text, View } from "react-native";
 
 export default function LoginScreen() {
   const router = useRouter();
-  const [email, setEmail] = useState("noah.lien@straume.test");
-  const [password, setPassword] = useState("bytt-meg-lokalt");
+  const localApi = API_BASE.includes("localhost") || API_BASE.includes("127.0.0.1");
+  const [email, setEmail] = useState(localApi ? "noah.lien@straume.test" : "");
+  const [password, setPassword] = useState(localApi ? "bytt-meg-lokalt" : "");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -20,7 +21,7 @@ export default function LoginScreen() {
   return (
     <View style={{ flex: 1, justifyContent: "center", padding: 24, gap: 16 }}>
       <Text style={{ fontSize: 36, color: colors.sea, fontWeight: "700" }}>Straume befaring</Text>
-      <Text style={{ color: colors.muted }}>Fungerer uten nett. Bilder, lyd og video går til prosjektet, ikke til kamerarullen.</Text>
+      <Text style={{ color: colors.muted }}>Fungerer uten nett. Bilder, lyd og video lagres på salgsavtalen eller prosjektet.</Text>
       <Card>
         <Field label="E-post" autoCapitalize="none" value={email} onChangeText={setEmail} />
         <Field label="Passord" secureTextEntry value={password} onChangeText={setPassword} />

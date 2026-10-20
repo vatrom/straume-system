@@ -1,0 +1,59 @@
+// SQLite is enough for the first version. Switch provider to postgresql
+// and point DATABASE_URL at a server when several people write at once.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Resource {
+  id                  String       @id @default(cuid())
+  name                String
+  role                String
+  weeklyCapacityHours Float        @default(37.5)
+  active              Boolean      @default(true)
+  isExample           Boolean      @default(false)
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+  absences            Absence[]
+  assignments         Assignment[]
+}
+
+model Absence {
+  id         String   @id @default(cuid())
+  resourceId String
+  resource   Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  startDate  DateTime
+  endDate    DateTime
+  reason     String   @default("Ferie")
+}
+
+model Project {
+  id             String       @id @default(cuid())
+  name           String
+  customer       String       @default("")
+  address        String       @default("")
+  startDate      DateTime
+  endDate        DateTime?
+  estimatedHours Float
+  status         String       @default("planlagt")
+  color          String       @default("#1f6b4a")
+  isExample      Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  assignments    Assignment[]
+}
+
+model Assignment {
+  id         String   @id @default(cuid())
+  projectId  String
+  resourceId String
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  resource   Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, resourceId])
+}

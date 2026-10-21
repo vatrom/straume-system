@@ -463,27 +463,39 @@ function GanttTable({
                 const inside = index >= start && index <= end;
                 const alone = start === end;
                 return (
-                  <td key={week.id}>
+                      <td key={week.id}>
                     <div
                       className="gantt-cell"
                       onPointerDown={(event) => {
-                        if (event.pointerType !== "mouse" || event.button !== 0) return;
-                        const width = (event.currentTarget as HTMLElement).getBoundingClientRect().width || 48;
-                        drag.current = { bar, x: event.clientX, width };
+                        if (event.pointerType === "touch" || event.button !== 0) return;
+                        event.preventDefault();
+                        const width = event.currentTarget.getBoundingClientRect().width || 48;
+                        const origin = event.clientX;
+                        const handle = event.currentTarget;
+                        drag.current = { bar, x: origin, width };
                         setOffset({ key, weeks: 0 });
-                        (event.currentTarget.parentElement?.parentElement as HTMLElement | null)?.setPointerCapture?.(event.pointerId);
-                      }}
-                      onPointerMove={(event) => {
-                        if (!drag.current || drag.current.bar !== bar) return;
-                        const weeksDelta = Math.round((event.clientX - drag.current.x) / drag.current.width);
-                        setOffset({ key, weeks: weeksDelta });
-                      }}
-                      onPointerUp={(event) => {
-                        if (event.pointerType !== "mouse" || !drag.current || drag.current.bar !== bar) return;
-                        const weeksDelta = Math.round((event.clientX - drag.current.x) / drag.current.width);
-                        drag.current = null;
-                        setOffset(null);
-                        if (weeksDelta !== 0) onShift(bar, weeksDelta * 7);
+                        const move = (ev: PointerEvent) => {
+                          if (ev.pointerId !== event.pointerId) return;
+                          setOffset({ key, weeks: Math.round((ev.clientX - origin) / width) });
+                        };
+                        const up = (ev: PointerEvent) => {
+                          if (ev.pointerId !== event.pointerId) return;
+                          handle.removeEventListener("pointermove", move);
+                          window.removeEventListener("pointerup", up);
+                          window.removeEventListener("pointercancel", up);
+                          drag.current = null;
+                          const weeksDelta = Math.round((ev.clientX - origin) / width);
+                          setOffset(null);
+                          if (weeksDelta !== 0) onShift(bar, weeksDelta * 7);
+                        };
+                        handle.addEventListener("pointermove", move);
+                        window.addEventListener("pointerup", up);
+                        window.addEventListener("pointercancel", up);
+                        try {
+                          handle.setPointerCapture(event.pointerId);
+                        } catch {
+                          // Slipp utenfor cellen fanges av window.
+                        }
                       }}
                     >
                       {inside ? (

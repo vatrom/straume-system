@@ -487,8 +487,9 @@ table.heat thead .name-col { z-index: 3; background: #faf7f2; }
 }
 
 .gantt-table { border-top: 1px solid var(--line); }
-.gantt-cell { min-height: 42px; display: flex; align-items: center; touch-action: pan-y; }
-.gantt-seg { height: 16px; width: 100%; cursor: grab; }
+.gantt-table td { min-width: 4.6rem; }
+.gantt-cell { min-height: 42px; min-width: 4.6rem; display: flex; align-items: center; touch-action: pan-y; }
+.gantt-seg { height: 22px; width: 100%; cursor: grab; }
 .gantt-seg.tentative {
   opacity: 0.72;
   background-image: repeating-linear-gradient(-45deg, transparent, transparent 4px, rgba(255, 255, 255, 0.55) 4px, rgba(255, 255, 255, 0.55) 8px) !important;

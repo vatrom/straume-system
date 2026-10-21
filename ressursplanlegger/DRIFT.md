@@ -69,10 +69,6 @@ Hver natt kl. 02.15:
 15 2 * * * SYNC_SECRET='hemmeligheten' SYNC_URL='http://127.0.0.1:3000/api/tripletex/sync' /sti/til/ressursplanlegger/scripts/sync-tripletex.sh
 ```
 
-Uten skriptet:
-
-```bash
-curl -fsS -X POST -H "Authorization: Bearer $SYNC_SECRET" http://127.0.0.1:3000/api/tripletex/sync
-```
+Produksjonscontaineren har ikke curl. Kjør skriptet på verten, som over. Det leser headeren fra stdin (`curl -H @-`), så hemmeligheten ikke vises i prosesslisten.
 
 `SYNC_URL` kan peke på det offentlige navnet hvis jobben ikke kjører på samme maskin. Skriptet skriver ikke ut hemmeligheten.

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { requireUser } from "./auth";
+import { requireAdmin, requireUser } from "./auth";
 import { loadInputs } from "./data";
 import { prisma } from "./db";
 import { addDays, dateToIso, isoToDate, isValidIso } from "./dates";
@@ -214,7 +214,7 @@ export async function deleteProject(id: string) {
 }
 
 export async function deleteExampleData() {
-  await requireUser();
+  await requireAdmin();
   await prisma.$transaction([
     prisma.project.deleteMany({ where: { isExample: true } }),
     prisma.resource.deleteMany({ where: { isExample: true } }),

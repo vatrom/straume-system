@@ -45,7 +45,6 @@ async function main() {
   const monday = mondayOf(todayIso());
   const existing = await prisma.resource.count();
   if (existing > 0) {
-    await ensureTentative(monday);
     console.log("Databasen har allerede data. Hopper over eksempeldata.");
     return;
   }

@@ -61,11 +61,33 @@ export function staffEmployees(rows: TripletexEmployee[]): TripletexEmployee[] {
   return rows.filter((row) => !row.isContact);
 }
 
+function isoDay(value: unknown): string | null {
+  const raw = text(value).slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : null;
+}
+
+function customerName(row: Record<string, unknown>): string {
+  const nested = record(row.customer);
+  if (nested) {
+    const name = text(nested.name).trim();
+    if (name) return name;
+  }
+  return text(row.customerName).trim();
+}
+
 export function normalizeProject(raw: unknown): TripletexProject | null {
   const row = record(raw);
   const id = row ? num(row.id) : null;
   if (!row || id == null) return null;
-  return { id, number: text(row.number), name: text(row.name) || text(row.displayName) };
+  return {
+    id,
+    number: text(row.number),
+    name: text(row.name) || text(row.displayName),
+    customer: customerName(row),
+    startDate: isoDay(row.startDate),
+    endDate: isoDay(row.endDate),
+    closed: row.isClosed === true || row.closed === true,
+  };
 }
 
 export function normalizeEntry(raw: unknown): TripletexEntry | null {

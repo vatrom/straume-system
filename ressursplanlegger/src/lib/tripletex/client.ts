@@ -125,7 +125,13 @@ export async function createTripletexApi(
       return staffEmployees(rows.map(normalizeEmployee).filter((row): row is TripletexEmployee => Boolean(row)));
     },
     projects: async () => {
-      const rows = await getAll(config, sessionToken, "/project", { fields: "id,number,name" }, fetchImpl);
+      const rows = await getAll(
+        config,
+        sessionToken,
+        "/project",
+        { fields: "id,number,name,startDate,endDate,isClosed,customer(id,name)" },
+        fetchImpl,
+      );
       return rows.map(normalizeProject).filter((row): row is TripletexProject => Boolean(row));
     },
     entries: async (dateFrom, dateTo) => {

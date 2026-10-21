@@ -1,12 +1,14 @@
 import Link from "next/link";
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import { deleteExampleData } from "@/lib/actions";
+import { getCurrentUser } from "@/lib/auth";
 import { getDashboard } from "@/lib/data";
 import { LEVEL_LABEL, formatHours } from "@/lib/format";
+import { TRIPLETEX_SETUP_LABEL } from "@/lib/tripletex/import";
 
 export default async function HomePage({ searchParams }: { searchParams: Promise<{ fag?: string }> }) {
   const params = await searchParams;
-  const data = await getDashboard(params.fag ?? "");
+  const [data, user] = await Promise.all([getDashboard(params.fag ?? ""), getCurrentUser()]);
   const freePeople = data.nextWeekPeople.filter((person) => person.level === "free").length;
 
   return (
@@ -34,10 +36,27 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
             <strong>Eksempeldata.</strong> Tallene under er lagt inn for å vise hvordan oversikten ser ut. Slett dem når dere
             legger inn egne folk og prosjekter.
           </p>
-          <form action={deleteExampleData}>
-            <ConfirmSubmit label="Slett eksempeldata" confirm="Slette alle ressurser og prosjekter som er merket som eksempel?" />
-          </form>
+          {user?.role === "admin" ? (
+            <form action={deleteExampleData}>
+              <ConfirmSubmit
+                label="Fjern eksempeldata"
+                confirm="Fjerne alle ressurser og prosjekter som er merket som eksempel?"
+              />
+            </form>
+          ) : null}
         </div>
+      ) : null}
+
+      {data.newFromTripletex.length > 0 ? (
+        <section className="panel" style={{ marginBottom: "0.9rem" }}>
+          <h2>{TRIPLETEX_SETUP_LABEL}</h2>
+          {data.newFromTripletex.map((project) => (
+            <Link key={project.id} className="overload-item" href={`/prosjekter/${project.id}`}>
+              <strong>{project.name}</strong>
+              <span className="meta">{TRIPLETEX_SETUP_LABEL}</span>
+            </Link>
+          ))}
+        </section>
       ) : null}
 
       {data.activeResources === 0 ? (

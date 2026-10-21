@@ -20,6 +20,10 @@ export type TripletexProject = {
   id: number;
   number: string;
   name: string;
+  customer: string;
+  startDate: string | null;
+  endDate: string | null;
+  closed: boolean;
 };
 
 export type TripletexEntry = {

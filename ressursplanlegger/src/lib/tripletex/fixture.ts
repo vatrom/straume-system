@@ -5,8 +5,17 @@ export const tripletexFixture = {
     { id: 11, firstName: "Per", lastName: "Kontakt", isContact: true },
   ],
   projects: [
-    { id: 200, number: "1042", name: "Tilbygg Strandveien" },
-    { id: 201, number: "1099", name: "Ukjent bygg" },
+    {
+      id: 200,
+      number: "1042",
+      name: "Tilbygg Strandveien",
+      customer: { name: "Familien Berg" },
+      startDate: "2026-10-19",
+      endDate: "2026-12-01",
+      isClosed: false,
+    },
+    { id: 201, number: "1099", name: "Ukjent bygg", customerName: "Ukjent", startDate: "2026-11-01", isClosed: false },
+    { id: 202, number: "1001", name: "Gammelt naust", isClosed: true },
   ],
   entries: [
     {

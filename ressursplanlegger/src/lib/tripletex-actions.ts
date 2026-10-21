@@ -3,13 +3,15 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "./auth";
 import { prisma } from "./db";
-import { todayIso, isoToDate } from "./dates";
+import { dateToIso, todayIso } from "./dates";
+import { applyEmployeeImports, applyProjectImports } from "./tripletex/apply";
 import { createTripletexApi } from "./tripletex/client";
 import { readTripletexConfig } from "./tripletex/config";
-import { bestEmployeeMatch, bestProjectMatch } from "./tripletex/match";
+import { planEmployeeImports, planProjectImports, type LocalProject } from "./tripletex/import";
 import { runTripletexSync, type SyncReport } from "./tripletex/run";
 
 function refresh() {
+  revalidatePath("/");
   revalidatePath("/tripletex");
   revalidatePath("/prosjekter");
   revalidatePath("/ressurser");
@@ -68,60 +70,47 @@ export async function importTripletexCatalog(kind: "ansatte" | "prosjekter") {
     if (!api) return { error: "Tripletex er ikke satt opp." };
     if (kind === "ansatte") {
       const employees = await api.employees();
-      const resources = await prisma.resource.findMany();
-      let created = 0;
-      for (const employee of employees) {
-        if (resources.some((resource) => resource.tripletexEmployeeId === employee.id)) continue;
-        const name = `${employee.firstName} ${employee.lastName}`.trim();
-        const suggested = bestEmployeeMatch(name, [employee]);
-        const existing = resources.find((resource) => resource.tripletexEmployeeId == null && bestEmployeeMatch(resource.name, [employee]) === suggested && suggested === employee.id);
-        if (existing) {
-          await prisma.resource.update({ where: { id: existing.id }, data: { tripletexEmployeeId: employee.id } });
-          existing.tripletexEmployeeId = employee.id;
-          continue;
-        }
-        await prisma.resource.create({
-          data: {
-            name: name || `Ansatt ${employee.id}`,
-            role: "Ukjent",
-            weeklyCapacityHours: 37.5,
-            tripletexEmployeeId: employee.id,
-          },
-        });
-        created += 1;
-      }
+      const resources = await prisma.resource.findMany({
+        select: { id: true, name: true, tripletexEmployeeId: true },
+      });
+      const plan = planEmployeeImports(employees, resources);
+      const result = await applyEmployeeImports(plan);
+      const skipped = plan.filter((change) => change.kind === "skip" && change.reason === "possible-duplicate").length;
       refresh();
-      return { ok: created > 0 ? `La inn ${created} nye ressurser. Fag er ikke hentet fra aktiviteten.` : "Ingen nye ansatte å legge inn." };
+      return {
+        ok: `Koblet ${result.linked} og la inn ${result.created} ressurser.${skipped ? ` ${skipped} mulige dubletter ble ikke opprettet.` : ""} Fag er ikke hentet fra aktiviteten.`,
+      };
     }
     const remote = await api.projects();
-    const projects = await prisma.project.findMany();
-    let created = 0;
-    for (const project of remote) {
-      if (projects.some((item) => item.tripletexProjectId === project.id)) continue;
-      const matchId = bestProjectMatch(project.name, [project]);
-      const existing = projects.find((item) => !item.tripletexProjectId && bestProjectMatch(item.name, [project]) === matchId);
-      if (existing) {
-        await prisma.project.update({
-          where: { id: existing.id },
-          data: { tripletexProjectId: project.id, tripletexProjectNumber: project.number },
-        });
-        existing.tripletexProjectId = project.id;
-        continue;
-      }
-      await prisma.project.create({
-        data: {
-          name: project.name || `Prosjekt ${project.number || project.id}`,
-          startDate: isoToDate(todayIso()),
-          estimatedHours: 0,
-          status: "planlagt",
-          tripletexProjectId: project.id,
-          tripletexProjectNumber: project.number,
-        },
-      });
-      created += 1;
-    }
+    const projects = await prisma.project.findMany({
+      select: {
+        id: true,
+        name: true,
+        customer: true,
+        tripletexProjectId: true,
+        tripletexProjectNumber: true,
+        startDate: true,
+        endDate: true,
+        status: true,
+      },
+    });
+    const local: LocalProject[] = projects.map((project) => ({
+      id: project.id,
+      name: project.name,
+      customer: project.customer,
+      tripletexProjectId: project.tripletexProjectId,
+      tripletexProjectNumber: project.tripletexProjectNumber,
+      startDate: dateToIso(project.startDate),
+      endDate: project.endDate ? dateToIso(project.endDate) : null,
+      status: project.status,
+    }));
+    const plan = planProjectImports(remote, local, todayIso());
+    const result = await applyProjectImports(plan);
+    const skipped = plan.filter((change) => change.kind === "skip").length;
     refresh();
-    return { ok: created > 0 ? `La inn ${created} prosjekter uten timeverk. Fyll inn timer før de belaster planen.` : "Ingen nye prosjekter å legge inn." };
+    return {
+      ok: `La inn ${result.created} prosjekter og oppdaterte ${result.updated}.${skipped ? ` ${skipped} lukkede ble hoppet over.` : ""} Fyll inn timer og ressurser før de belaster planen.`,
+    };
   } catch (error) {
     return { error: error instanceof Error ? error.message : "Kunne ikke hente fra Tripletex." };
   }

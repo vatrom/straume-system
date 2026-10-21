@@ -261,6 +261,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .pill.pågår { background: var(--forest); color: white; }
 .pill.ferdig { background: #e7e7e4; color: #555; }
 .pill.example { background: #fff1d6; color: #7a4e00; }
+.pill.setup { background: #fff1d6; color: #7a4e00; }
 .pill.free { background: var(--free-bg); color: var(--free); }
 .pill.tight { background: var(--tight-bg); color: var(--tight); }
 .pill.over { background: var(--over-bg); color: var(--over); }

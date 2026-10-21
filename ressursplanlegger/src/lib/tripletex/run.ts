@@ -1,8 +1,10 @@
 import { prisma } from "../db";
 import { dateToIso, todayIso } from "../dates";
 import { isoToDate } from "../dates";
+import { applyEmployeeImports, applyProjectImports } from "./apply";
 import { createTripletexApi } from "./client";
 import { readTripletexConfig } from "./config";
+import { planEmployeeImports, planProjectImports, type LocalProject } from "./import";
 import {
   classifyEntries,
   incompleteWeekCount,
@@ -19,7 +21,25 @@ export type SyncReport = {
   unchanged: number;
   unmapped: number;
   incompleteWeeks: number;
+  projectsCreated: number;
+  projectsUpdated: number;
+  projectsSkipped: number;
+  employeesLinked: number;
+  employeesCreated: number;
   message: string;
+};
+
+const emptyCounts = {
+  inserted: 0,
+  updated: 0,
+  unchanged: 0,
+  unmapped: 0,
+  incompleteWeeks: 0,
+  projectsCreated: 0,
+  projectsUpdated: 0,
+  projectsSkipped: 0,
+  employeesLinked: 0,
+  employeesCreated: 0,
 };
 
 function linksFromRows(
@@ -45,11 +65,7 @@ export async function runTripletexSync(): Promise<SyncReport> {
     return {
       ok: false,
       disabled: true,
-      inserted: 0,
-      updated: 0,
-      unchanged: 0,
-      unmapped: 0,
-      incompleteWeeks: 0,
+      ...emptyCounts,
       message: "Tripletex er ikke satt opp. Legg inn nøkkel i miljøvariablene.",
     };
   }
@@ -60,23 +76,55 @@ export async function runTripletexSync(): Promise<SyncReport> {
       return {
         ok: false,
         disabled: true,
-        inserted: 0,
-        updated: 0,
-        unchanged: 0,
-        unmapped: 0,
-        incompleteWeeks: 0,
+        ...emptyCounts,
         message: "Tripletex er ikke satt opp.",
       };
     }
 
     const today = todayIso();
     const window = syncWindow(today);
-    const [resources, projects, entries] = await Promise.all([
+    const [remoteEmployees, remoteProjects, entries, localResources, localProjects] = await Promise.all([
+      api.employees(),
+      api.projects(),
+      api.entries(window.dateFrom, window.dateTo),
+      prisma.resource.findMany({ select: { id: true, name: true, tripletexEmployeeId: true } }),
+      prisma.project.findMany({
+        select: {
+          id: true,
+          name: true,
+          customer: true,
+          tripletexProjectId: true,
+          tripletexProjectNumber: true,
+          startDate: true,
+          endDate: true,
+          status: true,
+        },
+      }),
+    ]);
+    const employeePlan = planEmployeeImports(remoteEmployees, localResources);
+    const projectPlan = planProjectImports(
+      remoteProjects,
+      localProjects.map(
+        (project): LocalProject => ({
+          id: project.id,
+          name: project.name,
+          customer: project.customer,
+          tripletexProjectId: project.tripletexProjectId,
+          tripletexProjectNumber: project.tripletexProjectNumber,
+          startDate: dateToIso(project.startDate),
+          endDate: project.endDate ? dateToIso(project.endDate) : null,
+          status: project.status,
+        }),
+      ),
+      today,
+    );
+    const employees = await applyEmployeeImports(employeePlan);
+    const projectImport = await applyProjectImports(projectPlan);
+    const [resources, projects] = await Promise.all([
       prisma.resource.findMany({ select: { id: true, tripletexEmployeeId: true } }),
       prisma.project.findMany({
         select: { id: true, tripletexProjectId: true, tripletexProjectNumber: true },
       }),
-      api.entries(window.dateFrom, window.dateTo),
     ]);
     const classified = classifyEntries(entries, linksFromRows(resources, projects));
     const employeeIds = [...new Set(entries.map((entry) => entry.employeeId))];
@@ -124,10 +172,14 @@ export async function runTripletexSync(): Promise<SyncReport> {
     }
 
     const unmapped = classified.filter((entry) => entry.unmappedReason).length;
+    const projectsSkipped = projectPlan.filter((change) => change.kind === "skip").length;
     const message = [
       `Hentet ${classified.length} timer.`,
       `${inserted} nye, ${updated} oppdatert, ${unchanged} uendret.`,
       unmapped > 0 ? `${unmapped} uten kobling.` : "Alle er koblet.",
+      `${projectImport.created} nye prosjekter, ${projectImport.updated} oppdatert.`,
+      projectsSkipped > 0 ? `${projectsSkipped} lukkede prosjekter hoppet over.` : "",
+      `${employees.linked} ansatte koblet, ${employees.created} nye ressurser.`,
       incompleteWeeks > 0 ? `${incompleteWeeks} uker er ikke markert fullført i Tripletex.` : "",
     ]
       .filter(Boolean)
@@ -139,7 +191,20 @@ export async function runTripletexSync(): Promise<SyncReport> {
       update: { lastSyncAt: new Date(), lastSyncOk: true, lastSyncMessage: message },
     });
 
-    return { ok: true, inserted, updated, unchanged, unmapped, incompleteWeeks, message };
+    return {
+      ok: true,
+      inserted,
+      updated,
+      unchanged,
+      unmapped,
+      incompleteWeeks,
+      projectsCreated: projectImport.created,
+      projectsUpdated: projectImport.updated,
+      projectsSkipped,
+      employeesLinked: employees.linked,
+      employeesCreated: employees.created,
+      message,
+    };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Kunne ikke hente timer fra Tripletex.";
     await prisma.integrationState.upsert({
@@ -147,14 +212,6 @@ export async function runTripletexSync(): Promise<SyncReport> {
       create: { id: "tripletex", lastSyncAt: new Date(), lastSyncOk: false, lastSyncMessage: message },
       update: { lastSyncAt: new Date(), lastSyncOk: false, lastSyncMessage: message },
     });
-    return {
-      ok: false,
-      inserted: 0,
-      updated: 0,
-      unchanged: 0,
-      unmapped: 0,
-      incompleteWeeks: 0,
-      message,
-    };
+    return { ok: false, ...emptyCounts, message };
   }
 }

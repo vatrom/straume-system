@@ -81,18 +81,29 @@ TRIPLETEX_REFRESH_TOKEN="nøkkelen"
 TRIPLETEX_BASE_URL="https://tripletex.no/v2"
 TRIPLETEX_COMPANY_ID="6682311"
 TRIPLETEX_SYNC_SECRET="en lang hemmelighet"
+SYNC_SECRET="en lang hemmelighet"
 ```
 
 Uten nøkkel er knappen «Hent timer fra Tripletex» av. Finnes både `TRIPLETEX_CONSUMER_TOKEN` og `TRIPLETEX_EMPLOYEE_TOKEN`, brukes den kommersielle sesjonen i stedet. Brukernavnet mot Tripletex er `0` (eget firma). Regnskapsførertoken kan sette `TRIPLETEX_USERNAME` til klientens firma-id.
 
-Under **Timer** kobler dere ansatt til ressurs og Tripletex-prosjekt til prosjekt, på id eller prosjektnummer. Treff på navn og nummer foreslås. Ansatte og prosjekter kan også hentes inn. Aktiviteten er ofte «Timer fastpris» og brukes ikke som fag.
+Under **Timer** kobler dere ansatt til ressurs og Tripletex-prosjekt til prosjekt, på id eller prosjektnummer. Treff på navn og nummer foreslås. Knappen «Hent timer fra Tripletex» og `POST /api/tripletex/sync` henter timer og oppretter prosjekter som ikke finnes i planleggeren. Nytt prosjekt får navn, prosjektnummer, kunde, oppstart og slutt når Tripletex har dem, og status Planlagt. Lukkede prosjekter som aldri er importert, hoppes over. Et allerede koblet prosjekt som er lukket i Tripletex, settes til Ferdig, unntatt tilbud. Navn, nummer, kunde og datoer oppdateres på koblede prosjekter. Timeverk, tildelte ressurser, prosent, faser, farge og tilbud røres ikke.
+
+Prosjekt uten timeverk eller uten folk merkes **Ny fra Tripletex – mangler timeverk/ressurser** på oversikten og i prosjektlisten, til timer og ressurser er fylt inn.
+
+Ansatte (ikke kontakter, `isContact` er en kontakt) kobles til eksisterende ressurs når navnet er likt. Ligner navnet bare, opprettes ingen ny ressurs, så dubletter unngås. Uten treff opprettes ressursen med fag «Ukjent» og kobling til Tripletex-ansatt-id. Aktiviteten er ofte «Timer fastpris» og brukes ikke som fag.
 
 Importen er idempotent: samme Tripletex-rad oppdateres, den dupliseres ikke. Timer uten kobling vises i listen, så ingenting forsvinner stille. Sist hentet vises på siden.
 
-Nattlig jobb:
+Planlagt jobb, for eksempel hver time eller hver natt. `SYNC_SECRET` og `TRIPLETEX_SYNC_SECRET` godtas begge. Skriptet skriver ikke ut hemmeligheten.
 
 ```bash
-curl -X POST -H "Authorization: Bearer $TRIPLETEX_SYNC_SECRET" https://eksempel.no/api/tripletex/sync
+chmod +x scripts/sync-tripletex.sh
+# crontab: 0 * * * * SYNC_SECRET='…' SYNC_URL='http://127.0.0.1:3000/api/tripletex/sync' /sti/ressursplanlegger/scripts/sync-tripletex.sh
+SYNC_SECRET="en lang hemmelighet" ./scripts/sync-tripletex.sh
+```
+
+```bash
+curl -fsS -X POST -H "Authorization: Bearer $SYNC_SECRET" http://127.0.0.1:3000/api/tripletex/sync
 ```
 
 ## Innlogging
@@ -101,24 +112,15 @@ Passord lagres med scrypt. Sesjonen er en httpOnly-cookie i 14 dager. `requireUs
 
 ## Drift
 
-Lokalt er databasen SQLite (`DATABASE_URL=file:./dev.db`). På en server med flere som lagrer samtidig, sett `DATABASE_URL` til Postgres. `scripts/prepare-prisma.mjs` bytter provider før `prisma generate`. Klienten genereres på nytt når containeren starter, fordi motoren er ulik for SQLite og Postgres.
+Lokalt er databasen SQLite (`DATABASE_URL=file:./dev.db`). `npm run db:setup` bruker `prisma db push`, ikke migrasjonene. Migrasjonene under `prisma/migrations` er PostgreSQL. `scripts/prepare-prisma.mjs` bytter provider til postgresql når `DATABASE_URL` starter med `postgres`, før `prisma generate`. Klienten genereres på nytt når containeren starter, fordi motoren er ulik for SQLite og Postgres.
 
-### Vercel og Postgres
+Med Postgres er oppstart `prisma migrate deploy`, deretter seed. Uten Postgres-URL (SQLite på `/data`) brukes fortsatt `prisma db push`, bare for det lokale volumet. Seed oppretter `admin@straume.no` bare hvis e-posten mangler, og legger inn eksempeldata bare når det ikke finnes noen ressurser. Den oppretter ikke tilbudet på nytt og overskriver ikke eksisterende rader. Administrator fjerner eksempeldata med **Fjern eksempeldata** under Brukere, eller på oversikten.
 
-1. Opprett en Postgres, for eksempel Neon eller Vercel Postgres.
-2. Sett `DATABASE_URL` og `ADMIN_INITIAL_PASSWORD` i prosjektet. Legg inn Tripletex-variablene om importen skal være på.
-3. Byggkommando: `npm run build` fra mappen `ressursplanlegger` (rotkatalog i Vercel = denne mappen).
-4. Etter første deploy: `npx prisma db push && npx tsx prisma/seed.ts` mot samme `DATABASE_URL`, eller kjør det i en release-kommando.
+Produksjon kjører som Docker mot Postgres. Denne mappen deployer ikke av seg selv. Se også `DRIFT.md`.
 
-### Railway
+### Ny Postgres
 
-Samme variabler. Startkommando:
-
-```bash
-node scripts/prepare-prisma.mjs && npx prisma generate && npx prisma db push && npx tsx prisma/seed.ts && npm start
-```
-
-### Liten VPS med Docker
+Tom database får tabellene av `prisma migrate deploy` ved oppstart. Sett `DATABASE_URL` og `ADMIN_INITIAL_PASSWORD`. Uten `DATABASE_URL` bruker imaget SQLite på volumet `/data`.
 
 ```bash
 docker build -t ressursplanlegger .
@@ -129,6 +131,33 @@ docker run --rm -p 3000:3000 \
   ressursplanlegger
 ```
 
-Uten `DATABASE_URL` bruker imaget SQLite på volumet `/data`. Eksempeldata legges inn bare når det ikke finnes ressurser fra før. Administrator opprettes hvis e-posten mangler.
+### Eksisterende produksjonsdatabase
 
-Appen er ikke deployet herfra.
+Databasen som allerede er opprettet med `prisma db push`, har tabellene, men ikke `_prisma_migrations`. Kjør dette **én gang** med det nye imaget, før containeren får kjøre `migrate deploy` (eller etter at den har feilet på `CREATE TABLE`). Ta backup først. Kommandoen kjører ikke SQL på nytt. Kjør den ikke to ganger.
+
+```bash
+docker run --rm \
+  --network <docker-nettverket-der-postgres-kjorer> \
+  -e DATABASE_URL="postgresql://BRUKER:PASSORD@VERT:5432/DATABASE" \
+  --entrypoint sh \
+  ressursplanlegger:TAG \
+  -c "node scripts/prepare-prisma.mjs && npx prisma migrate resolve --applied 20261021120000_init"
+```
+
+Med Compose, når `DATABASE_URL` allerede ligger på tjenesten:
+
+```bash
+docker compose run --rm --entrypoint sh app -c "node scripts/prepare-prisma.mjs && npx prisma migrate resolve --applied 20261021120000_init"
+```
+
+Start deretter app-containeren på nytt. `migrate deploy` ser at initiell migrasjon er registrert og oppretter ikke tabellene på nytt. Seed rører ikke eksisterende data.
+
+### Vercel eller Railway
+
+Samme `DATABASE_URL`. Ikke bruk `prisma db push` mot produksjon. Release-kommando:
+
+```bash
+node scripts/prepare-prisma.mjs && npx prisma generate && npx prisma migrate deploy && npx tsx prisma/seed.ts && npm start
+```
+
+Har databasen tabeller fra `db push` allerede, kjør `npx prisma migrate resolve --applied 20261021120000_init` én gang etter `prepare-prisma.mjs`, før `migrate deploy`.

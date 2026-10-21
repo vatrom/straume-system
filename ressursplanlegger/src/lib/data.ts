@@ -1,4 +1,5 @@
 import { prisma } from "./db";
+import { needsTripletexSetup } from "./tripletex/import";
 import { dateToIso, todayIso, addDays, mondayOf, sundayOf, formatShort, isoWeek } from "./dates";
 import { holidaysBetween } from "./holidays";
 import {
@@ -109,6 +110,7 @@ export type DashboardData = {
     level: ReturnType<typeof loadLevel>;
     note: string | null;
   }[];
+  newFromTripletex: { id: string; name: string }[];
 };
 
 export async function getDashboard(fag = ""): Promise<DashboardData> {
@@ -205,6 +207,16 @@ export async function getDashboard(fag = ""): Promise<DashboardData> {
     fag,
     nextWeekLabel: `Uke ${isoWeek(nextMonday).week} · ${formatShort(nextMonday)}–${formatShort(nextSunday)}`,
     nextWeekPeople,
+    newFromTripletex: projects
+      .filter((project) =>
+        needsTripletexSetup({
+          tripletexProjectId: project.tripletexProjectId,
+          estimatedHours: project.estimatedHours,
+          assignments: project.assignments,
+          phases: project.phases,
+        }),
+      )
+      .map((project) => ({ id: project.id, name: project.name })),
   };
 }
 

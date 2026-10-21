@@ -96,7 +96,11 @@ export function TripletexPanel({
           </button>
         </div>
         {note ? <p className="hint">{note}</p> : null}
-        <p className="hint">Nattlig jobb kan kalle POST /api/tripletex/sync med hemmeligheten i Authorization.</p>
+        <p className="hint">
+          Synken oppretter også nye prosjekter og ansatte. Lukkede prosjekter som aldri er importert, hoppes over.
+          Timeverk, ressurser, faser, farge og tilbud endres ikke. Planlagt jobb kan kalle POST /api/tripletex/sync med
+          SYNC_SECRET.
+        </p>
       </section>
 
       <form action={linkAction} className="card stack">

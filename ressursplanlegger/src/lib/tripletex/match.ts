@@ -1,4 +1,4 @@
-function norm(value: string): string {
+export function norm(value: string): string {
   return value
     .toLocaleLowerCase("nb")
     .normalize("NFD")

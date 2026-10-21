@@ -1,10 +1,10 @@
 import { getCurrentUser } from "@/lib/auth";
 import { runTripletexSync } from "@/lib/tripletex/run";
+import { bearerAuthorized } from "@/lib/tripletex/secret";
 
 export async function POST(request: Request) {
-  const secret = process.env.TRIPLETEX_SYNC_SECRET?.trim();
   const header = request.headers.get("authorization") ?? "";
-  const bearerOk = Boolean(secret) && header === `Bearer ${secret}`;
+  const bearerOk = bearerAuthorized(header, process.env);
   if (!bearerOk) {
     const user = await getCurrentUser();
     if (!user) return Response.json({ error: "Ikke autorisert" }, { status: 401 });

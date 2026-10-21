@@ -4,6 +4,7 @@ import { deleteProject } from "@/lib/actions";
 import { loadInputs } from "@/lib/data";
 import { todayIso, formatNorwegian } from "@/lib/dates";
 import { STATUS_LABEL, formatHours } from "@/lib/format";
+import { TRIPLETEX_SETUP_LABEL, needsTripletexSetup } from "@/lib/tripletex/import";
 import { prisma } from "@/lib/db";
 import { buildPlan } from "@/lib/planning";
 
@@ -66,6 +67,7 @@ export default async function ProsjekterPage() {
                 <div className="pills">
                   <span className={`pill ${project.status}`}>{STATUS_LABEL[project.status] ?? project.status}</span>
                   {project.isExample ? <span className="pill example">Eksempel</span> : null}
+                  {needsTripletexSetup(project) ? <span className="pill setup">{TRIPLETEX_SETUP_LABEL}</span> : null}
                 </div>
                 {warnings.map((warning) => (
                   <p key={warning.message} className="meta">

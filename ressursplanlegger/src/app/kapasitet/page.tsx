@@ -3,11 +3,13 @@ import { CapacityBoard } from "@/components/capacity-board";
 import { getCapacityView } from "@/lib/data";
 import { addDays, formatNorwegian } from "@/lib/dates";
 
-function href(options: { mode?: "uke" | "dag"; fra?: string; antall?: number }) {
+function href(options: { mode?: "uke" | "dag"; fra?: string; antall?: number; fag?: string; tilbud?: boolean }) {
   const params = new URLSearchParams();
   if (options.mode === "dag") params.set("visning", "dag");
   if (options.fra) params.set("fra", options.fra);
   if (options.antall && options.antall !== 16) params.set("antall", String(options.antall));
+  if (options.fag) params.set("fag", options.fag);
+  if (options.tilbud === false) params.set("tilbud", "av");
   const query = params.toString();
   return query ? `/kapasitet?${query}` : "/kapasitet";
 }
@@ -15,12 +17,13 @@ function href(options: { mode?: "uke" | "dag"; fra?: string; antall?: number }) 
 export default async function KapasitetPage({
   searchParams,
 }: {
-  searchParams: Promise<{ visning?: string; fra?: string; antall?: string }>;
+  searchParams: Promise<{ visning?: string; fra?: string; antall?: string; fag?: string; tilbud?: string }>;
 }) {
   const params = await searchParams;
   const view = await getCapacityView(params);
   const shift = view.mode === "dag" ? 7 : 28;
   const counts = [12, 16, 26] as const;
+  const filter = { fag: view.fag, tilbud: view.showTentative };
 
   return (
     <>
@@ -36,20 +39,20 @@ export default async function KapasitetPage({
 
       <div className="toolbar">
         <div className="segment" role="tablist" aria-label="Visning">
-          <Link className={view.mode === "uke" ? "active" : undefined} href={href({ fra: view.from, antall: view.weekCount })}>
+          <Link className={view.mode === "uke" ? "active" : undefined} href={href({ fra: view.from, antall: view.weekCount, ...filter })}>
             Uke
           </Link>
-          <Link className={view.mode === "dag" ? "active" : undefined} href={href({ mode: "dag", fra: view.from })}>
+          <Link className={view.mode === "dag" ? "active" : undefined} href={href({ mode: "dag", fra: view.from, ...filter })}>
             Dag
           </Link>
         </div>
-        <Link className="btn-secondary" href={href({ mode: view.mode, fra: addDays(view.from, -shift), antall: view.weekCount })}>
+        <Link className="btn-secondary" href={href({ mode: view.mode, fra: addDays(view.from, -shift), antall: view.weekCount, ...filter })}>
           Forrige
         </Link>
-        <Link className="btn-secondary" href={href({ mode: view.mode, antall: view.weekCount })}>
+        <Link className="btn-secondary" href={href({ mode: view.mode, antall: view.weekCount, ...filter })}>
           I dag
         </Link>
-        <Link className="btn-secondary" href={href({ mode: view.mode, fra: addDays(view.from, shift), antall: view.weekCount })}>
+        <Link className="btn-secondary" href={href({ mode: view.mode, fra: addDays(view.from, shift), antall: view.weekCount, ...filter })}>
           Neste
         </Link>
         {view.mode === "uke"
@@ -57,12 +60,30 @@ export default async function KapasitetPage({
               <Link
                 key={count}
                 className={count === view.weekCount ? "btn" : "btn-secondary"}
-                href={href({ fra: view.from, antall: count })}
+                href={href({ fra: view.from, antall: count, ...filter })}
               >
                 {count} uker
               </Link>
             ))
           : null}
+        <Link className="btn-secondary" href={href({ mode: view.mode, fra: view.from, antall: view.weekCount, fag: view.fag, tilbud: !view.showTentative })}>
+          {view.showTentative ? "Skjul tilbud" : "Vis tilbud"}
+        </Link>
+      </div>
+
+      <div className="chips" style={{ marginBottom: "0.8rem" }}>
+        <Link className={!view.fag ? "chip selected" : "chip"} href={href({ mode: view.mode, fra: view.from, antall: view.weekCount, tilbud: view.showTentative })}>
+          Alle fag
+        </Link>
+        {view.roleNames.map((role) => (
+          <Link
+            key={role}
+            className={view.fag === role ? "chip selected" : "chip"}
+            href={href({ mode: view.mode, fra: view.from, antall: view.weekCount, fag: role, tilbud: view.showTentative })}
+          >
+            {role}
+          </Link>
+        ))}
       </div>
 
       <div className="legend">
@@ -119,6 +140,12 @@ export default async function KapasitetPage({
           name: resource.name,
           role: resource.role,
         }))}
+        directory={view.everyone.map((resource) => ({
+          id: resource.id,
+          name: resource.name,
+          role: resource.role,
+        }))}
+        groups={view.groups}
         rows={view.rows}
         totals={view.totals}
         dayRows={view.dayRows.map((row) => ({ resourceId: row.resource.id, days: row.days }))}

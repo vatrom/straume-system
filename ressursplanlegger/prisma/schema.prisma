@@ -1,5 +1,5 @@
-// SQLite is enough for the first version. Switch provider to postgresql
-// and point DATABASE_URL at a server when several people write at once.
+// SQLite locally. scripts/prepare-prisma.mjs switches provider to postgresql
+// when DATABASE_URL starts with postgres, so the same schema can run on a server.
 
 generator client {
   provider = "prisma-client-js"
@@ -10,17 +10,39 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String
+  passwordHash String
+  role         String    @default("bruker")
+  createdAt    DateTime  @default(now())
+  sessions     Session[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
 model Resource {
-  id                  String       @id @default(cuid())
-  name                String
-  role                String
-  weeklyCapacityHours Float        @default(37.5)
-  active              Boolean      @default(true)
-  isExample           Boolean      @default(false)
-  createdAt           DateTime     @default(now())
-  updatedAt           DateTime     @updatedAt
-  absences            Absence[]
-  assignments         Assignment[]
+  id                   String            @id @default(cuid())
+  name                 String
+  role                 String
+  weeklyCapacityHours  Float             @default(37.5)
+  active               Boolean           @default(true)
+  isExample            Boolean           @default(false)
+  tripletexEmployeeId  Int?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  absences             Absence[]
+  assignments          Assignment[]
+  phaseAssignments     PhaseAssignment[]
+  timeEntries          TimeEntry[]
 }
 
 model Absence {
@@ -33,27 +55,84 @@ model Absence {
 }
 
 model Project {
-  id             String       @id @default(cuid())
-  name           String
-  customer       String       @default("")
-  address        String       @default("")
-  startDate      DateTime
-  endDate        DateTime?
-  estimatedHours Float
-  status         String       @default("planlagt")
-  color          String       @default("#1f6b4a")
-  isExample      Boolean      @default(false)
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
-  assignments    Assignment[]
+  id                      String      @id @default(cuid())
+  name                    String
+  customer                String      @default("")
+  address                 String      @default("")
+  startDate               DateTime
+  endDate                 DateTime?
+  estimatedHours          Float
+  status                  String      @default("planlagt")
+  color                   String      @default("#1f6b4a")
+  isExample               Boolean     @default(false)
+  tripletexProjectId      Int?
+  tripletexProjectNumber  String      @default("")
+  createdAt               DateTime    @default(now())
+  updatedAt               DateTime    @updatedAt
+  assignments             Assignment[]
+  phases                  Phase[]
+  timeEntries             TimeEntry[]
 }
 
 model Assignment {
-  id         String   @id @default(cuid())
-  projectId  String
-  resourceId String
-  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  resource   Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  id                String   @id @default(cuid())
+  projectId         String
+  resourceId        String
+  allocationPercent Float    @default(100)
+  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  resource          Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
 
   @@unique([projectId, resourceId])
+}
+
+model Phase {
+  id             String            @id @default(cuid())
+  projectId      String
+  project        Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name           String
+  startDate      DateTime
+  endDate        DateTime?
+  estimatedHours Float
+  sortOrder      Int               @default(0)
+  assignments    PhaseAssignment[]
+}
+
+model PhaseAssignment {
+  id                String   @id @default(cuid())
+  phaseId           String
+  resourceId        String
+  allocationPercent Float    @default(100)
+  phase             Phase    @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  resource          Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  @@unique([phaseId, resourceId])
+}
+
+model TimeEntry {
+  id                  String    @id @default(cuid())
+  projectId           String?
+  resourceId          String?
+  project             Project?  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  resource            Resource? @relation(fields: [resourceId], references: [id], onDelete: SetNull)
+  date                DateTime
+  hours               Float
+  comment             String    @default("")
+  source              String
+  externalId          String?   @unique
+  tripletexEmployeeId Int?
+  tripletexProjectId  Int?
+  employeeName        String    @default("")
+  projectLabel        String    @default("")
+  unmappedReason      String    @default("")
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([projectId, date])
+}
+
+model IntegrationState {
+  id              String    @id
+  lastSyncAt      DateTime?
+  lastSyncMessage String    @default("")
+  lastSyncOk      Boolean   @default(false)
 }

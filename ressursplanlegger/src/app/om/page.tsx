@@ -23,8 +23,9 @@ export default function OmPage() {
 
       <h2>Hvordan timene fordeles</h2>
       <p>
-        Prosjektets timer deles mellom de tildelte aktive personene etter ukekapasitet. En lærling med 30 timer
-        i uken får en mindre andel enn en fagarbeider med 37,5.
+        Prosjektets timer deles mellom de tildelte aktive personene etter ukekapasitet, ganget med fordelingen
+        i prosent. 100 % er som før. 50 % teller som halv vekt, og uten sluttdato jobber personen halv dag.
+        En lærling med 30 timer i uken får en mindre andel enn en fagarbeider med 37,5.
       </p>
       <ul>
         <li>
@@ -37,8 +38,9 @@ export default function OmPage() {
         </li>
       </ul>
       <p>
-        Prosjekter som overlapper på samme person, legges sammen. Status «Ferdig» tas ut av planen. Personer som
-        ikke er aktive, får ingen timer.
+        Prosjekter som overlapper på samme person, legges sammen. Status «Ferdig» tas ut av planen. «Tilbud» kan
+        skjules i kapasiteten og vises skravert når det er med. Et prosjekt med faser planlegges fase for fase.
+        Uten faser er fordelingen den samme som før. Personer som ikke er aktive, får ingen timer.
       </p>
 
       <h2>Fargene</h2>

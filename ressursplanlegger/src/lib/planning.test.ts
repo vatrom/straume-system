@@ -6,6 +6,7 @@ import {
   buildPlan,
   dailyCapacity,
   loadLevel,
+  overloadSpans,
   previewAssignment,
   scheduleProject,
   totalWeekCells,
@@ -346,5 +347,149 @@ describe("sammenlagt plan", () => {
     assert.equal(kariPreview?.freeHours, 0);
     assert.ok(preview.peak);
     assert.ok((preview.peak?.bookedHours ?? 0) > 7.5);
+    assert.ok(preview.overloads.some((span) => span.resourceName === "Kari"));
+  });
+});
+
+describe("fordeling og faser", () => {
+  it("gir 100 % samme fordeling som i dag", () => {
+    const team = [resource({ id: "a", name: "A" }), resource({ id: "b", name: "B" })];
+    const result = scheduleProject(
+      project({
+        id: "p",
+        name: "Lik",
+        startDate: "2026-10-19",
+        endDate: "2026-10-23",
+        estimatedHours: 100,
+        resourceIds: ["a", "b"],
+        assignments: [
+          { resourceId: "a", allocationPercent: 100 },
+          { resourceId: "b", allocationPercent: 100 },
+        ],
+      }),
+      team,
+    );
+    assert.equal(result.schedule.bookings.get("a")?.get("2026-10-19"), 10);
+    assert.equal(result.schedule.bookings.get("b")?.get("2026-10-19"), 10);
+  });
+
+  it("vekter timene etter prosent", () => {
+    const team = [resource({ id: "a", name: "A" }), resource({ id: "b", name: "B" })];
+    const result = scheduleProject(
+      project({
+        id: "p",
+        name: "Ulik",
+        startDate: "2026-10-19",
+        endDate: "2026-10-23",
+        estimatedHours: 150,
+        resourceIds: ["a", "b"],
+        assignments: [
+          { resourceId: "a", allocationPercent: 100 },
+          { resourceId: "b", allocationPercent: 50 },
+        ],
+      }),
+      team,
+    );
+    assert.equal(result.schedule.bookings.get("a")?.get("2026-10-19"), 20);
+    assert.equal(result.schedule.bookings.get("b")?.get("2026-10-19"), 10);
+  });
+
+  it("bruker halv dagskapasitet når prosenten er 50 og det ikke er sluttdato", () => {
+    const kari = resource({ id: "kari", name: "Kari" });
+    const result = scheduleProject(
+      project({
+        id: "p",
+        name: "Halv",
+        startDate: "2026-10-19",
+        estimatedHours: 7.5,
+        resourceIds: ["kari"],
+        assignments: [{ resourceId: "kari", allocationPercent: 50 }],
+      }),
+      [kari],
+    );
+    assert.equal(result.schedule.bookings.get("kari")?.get("2026-10-19"), 3.75);
+    assert.equal(result.schedule.bookings.get("kari")?.get("2026-10-20"), 3.75);
+    assert.equal(result.schedule.finishDate, "2026-10-20");
+  });
+
+  it("legger fase-timer bare i fasens periode", () => {
+    const kari = resource({ id: "kari", name: "Kari" });
+    const plan = buildPlan(
+      [kari],
+      [
+        project({
+          id: "p",
+          name: "Naust",
+          startDate: "2026-10-19",
+          endDate: "2026-10-23",
+          estimatedHours: 999,
+          resourceIds: ["kari"],
+          phases: [
+            {
+              id: "fase-1",
+              name: "Grunnarbeid",
+              startDate: "2026-10-19",
+              endDate: "2026-10-19",
+              estimatedHours: 8,
+              assignments: [{ resourceId: "kari", allocationPercent: 100 }],
+            },
+            {
+              id: "fase-2",
+              name: "Støp",
+              startDate: "2026-10-21",
+              endDate: "2026-10-21",
+              estimatedHours: 4,
+              assignments: [{ resourceId: "kari", allocationPercent: 100 }],
+            },
+          ],
+        }),
+      ],
+      "2026-10-19",
+      "2026-10-23",
+    );
+    const monday = plan.byResource.get("kari")?.get("2026-10-19");
+    const tuesday = plan.byResource.get("kari")?.get("2026-10-20");
+    const wednesday = plan.byResource.get("kari")?.get("2026-10-21");
+    assert.equal(monday?.bookedHours, 8);
+    assert.equal(monday?.projects[0]?.phaseName, "Grunnarbeid");
+    assert.equal(tuesday?.bookedHours, 0);
+    assert.equal(wednesday?.bookedHours, 4);
+    assert.equal(wednesday?.projects[0]?.name, "Naust · Støp");
+  });
+});
+
+describe("tilbud", () => {
+  it("kan skjules og vises uten å endre et vanlig prosjekt", () => {
+    const kari = resource({ id: "kari", name: "Kari" });
+    const ordinary = project({
+      id: "fast",
+      name: "Fast",
+      startDate: "2026-10-19",
+      endDate: "2026-10-19",
+      estimatedHours: 5,
+      resourceIds: ["kari"],
+    });
+    const tentative = project({
+      id: "tilbud",
+      name: "Tilbud",
+      startDate: "2026-10-19",
+      endDate: "2026-10-19",
+      estimatedHours: 4,
+      status: "tentativ",
+      resourceIds: ["kari"],
+    });
+    const hidden = buildPlan([kari], [ordinary, tentative], "2026-10-19", "2026-10-19", {
+      includeTentative: false,
+    });
+    const shown = buildPlan([kari], [ordinary, tentative], "2026-10-19", "2026-10-19", {
+      includeTentative: true,
+    });
+    assert.equal(hidden.byResource.get("kari")?.get("2026-10-19")?.bookedHours, 5);
+    assert.equal(shown.byResource.get("kari")?.get("2026-10-19")?.bookedHours, 9);
+    assert.equal(shown.byResource.get("kari")?.get("2026-10-19")?.tentativeHours, 4);
+    const rows = weekRows(shown, [kari], "2026-10-19", "2026-10-25");
+    const spans = overloadSpans(rows, [kari]);
+    assert.equal(spans.length, 1);
+    assert.match(spans[0].label, /uke /);
   });
 });

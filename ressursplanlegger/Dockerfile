@@ -16,4 +16,4 @@ RUN npx prisma generate && npm run build
 
 EXPOSE 3000
 
-CMD ["sh", "-c", "mkdir -p /data && npx prisma db push && npx tsx prisma/seed.ts && npm start"]
+CMD ["sh", "-c", "mkdir -p /data && node scripts/prepare-prisma.mjs && npx prisma generate && npx prisma db push && npx tsx prisma/seed.ts && npm start"]

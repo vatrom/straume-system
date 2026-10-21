@@ -25,7 +25,21 @@ export type ResourceInput = {
   absences: AbsenceInput[];
 };
 
-export type ProjectStatus = "planlagt" | "pågår" | "ferdig";
+export type ProjectStatus = "planlagt" | "pågår" | "ferdig" | "tentativ";
+
+export type AssignmentInput = {
+  resourceId: string;
+  allocationPercent: number;
+};
+
+export type PhaseInput = {
+  id: string;
+  name: string;
+  startDate: IsoDate;
+  endDate: IsoDate | null;
+  estimatedHours: number;
+  assignments: AssignmentInput[];
+};
 
 export type ProjectInput = {
   id: string;
@@ -36,6 +50,10 @@ export type ProjectInput = {
   status: ProjectStatus;
   color: string;
   resourceIds: string[];
+  assignments?: AssignmentInput[];
+  phases?: PhaseInput[];
+  parentId?: string;
+  phaseName?: string;
 };
 
 export type ProjectSlice = {
@@ -43,12 +61,16 @@ export type ProjectSlice = {
   name: string;
   color: string;
   hours: number;
+  tentative?: boolean;
+  phaseName?: string;
+  parentId?: string;
 };
 
 export type DayCell = {
   date: IsoDate;
   capacityHours: number;
   bookedHours: number;
+  tentativeHours: number;
   level: LoadLevel;
   holidayName: string | null;
   absenceReason: string | null;
@@ -140,9 +162,60 @@ function addBooking(
   byDate.set(iso, (byDate.get(iso) ?? 0) + hours);
 }
 
-function assignedResources(project: ProjectInput, resources: ResourceInput[]): ResourceInput[] {
-  const ids = new Set(project.resourceIds);
-  return resources.filter((resource) => ids.has(resource.id) && resource.active);
+type Member = {
+  resource: ResourceInput;
+  allocation: number;
+  weight: number;
+};
+
+export function assignmentList(project: ProjectInput): AssignmentInput[] {
+  if (project.assignments && project.assignments.length > 0) return project.assignments;
+  return project.resourceIds.map((resourceId) => ({ resourceId, allocationPercent: 100 }));
+}
+
+function membersOf(project: ProjectInput, resources: ResourceInput[]) {
+  const requested: ResourceInput[] = [];
+  const members: Member[] = [];
+  for (const assignment of assignmentList(project)) {
+    const resource = resources.find((item) => item.id === assignment.resourceId);
+    if (!resource) continue;
+    requested.push(resource);
+    const allocation = Math.min(100, Math.max(0, assignment.allocationPercent)) / 100;
+    if (!resource.active || allocation <= 0) continue;
+    members.push({
+      resource,
+      allocation,
+      weight: resource.weeklyCapacityHours * allocation,
+    });
+  }
+  return { requested, members };
+}
+
+/** A project with phases becomes one planning unit per phase. Without phases, nothing changes. */
+export function expandProjects(projects: ProjectInput[]): ProjectInput[] {
+  const units: ProjectInput[] = [];
+  for (const project of projects) {
+    if (!project.phases || project.phases.length === 0) {
+      units.push(project);
+      continue;
+    }
+    for (const phase of project.phases) {
+      units.push({
+        ...project,
+        id: phase.id,
+        parentId: project.id,
+        phaseName: phase.name,
+        name: `${project.name} · ${phase.name}`,
+        startDate: phase.startDate,
+        endDate: phase.endDate,
+        estimatedHours: phase.estimatedHours,
+        resourceIds: phase.assignments.map((assignment) => assignment.resourceId),
+        assignments: phase.assignments,
+        phases: [],
+      });
+    }
+  }
+  return units;
 }
 
 export function scheduleProject(
@@ -162,9 +235,9 @@ export function scheduleProject(
     return { schedule, warnings };
   }
 
-  const requested = resources.filter((resource) => project.resourceIds.includes(resource.id));
+  const { requested, members } = membersOf(project, resources);
   const inactive = requested.filter((resource) => !resource.active);
-  const team = assignedResources(project, resources);
+  const team = members;
   if (inactive.length > 0 && team.length > 0) {
     warnings.push({
       projectId: project.id,
@@ -182,7 +255,7 @@ export function scheduleProject(
     return { schedule, warnings };
   }
 
-  const totalWeekly = team.reduce((sum, resource) => sum + resource.weeklyCapacityHours, 0);
+  const totalWeekly = team.reduce((sum, member) => sum + member.weight, 0);
   if (totalWeekly <= HOURS_EPSILON) {
     schedule.unallocatedHours = project.estimatedHours;
     warnings.push({
@@ -195,23 +268,23 @@ export function scheduleProject(
 
   if (project.endDate && project.endDate >= project.startDate) {
     let last: IsoDate | null = null;
-    for (const resource of team) {
-      const share = project.estimatedHours * (resource.weeklyCapacityHours / totalWeekly);
+    for (const member of team) {
+      const share = project.estimatedHours * (member.weight / totalWeekly);
       const days = eachDate(project.startDate, project.endDate).filter((iso) =>
-        isWorkingDay(resource, iso),
+        isWorkingDay(member.resource, iso),
       );
       if (days.length === 0) {
         schedule.unallocatedHours += share;
         warnings.push({
           projectId: project.id,
           projectName: project.name,
-          message: `${resource.name} har ingen arbeidsdager mellom oppstart og slutt, så ${formatWarningHours(share)} timer ble ikke lagt inn.`,
+          message: `${member.resource.name} har ingen arbeidsdager mellom oppstart og slutt, så ${formatWarningHours(share)} timer ble ikke lagt inn.`,
         });
         continue;
       }
       const perDay = share / days.length;
       for (const iso of days) {
-        addBooking(bookings, resource.id, iso, perDay);
+        addBooking(bookings, member.resource.id, iso, perDay);
         if (!last || iso > last) last = iso;
       }
     }
@@ -228,9 +301,11 @@ export function scheduleProject(
     const holiday = holidayName(cursor);
     if (!isWeekend(cursor) && !holiday) {
       const available = team
-        .map((resource) => ({
-          resource,
-          capacity: absenceReasonOn(resource, cursor) ? 0 : dailyCapacity(resource.weeklyCapacityHours),
+        .map((member) => ({
+          resource: member.resource,
+          capacity: absenceReasonOn(member.resource, cursor)
+            ? 0
+            : dailyCapacity(member.resource.weeklyCapacityHours) * member.allocation,
         }))
         .filter((entry) => entry.capacity > HOURS_EPSILON);
       const dayCapacity = available.reduce((sum, entry) => sum + entry.capacity, 0);
@@ -280,6 +355,7 @@ function emptyCell(resource: ResourceInput, iso: IsoDate): DayCell {
     date: iso,
     capacityHours: capacity,
     bookedHours: 0,
+    tentativeHours: 0,
     level: loadLevel(0, capacity),
     holidayName: holiday,
     absenceReason: absence,
@@ -287,21 +363,29 @@ function emptyCell(resource: ResourceInput, iso: IsoDate): DayCell {
   };
 }
 
+export type PlanOptions = {
+  includeTentative?: boolean;
+};
+
 export function buildPlan(
   resources: ResourceInput[],
   projects: ProjectInput[],
   from: IsoDate,
   to: IsoDate,
+  options?: PlanOptions,
 ): Plan {
+  const includeTentative = options?.includeTentative !== false;
+  const visible = projects.filter((project) => includeTentative || project.status !== "tentativ");
+  const units = expandProjects(visible);
   const schedules = new Map<string, ScheduledProject>();
   const warnings: PlanWarning[] = [];
-  for (const project of projects) {
+  for (const project of units) {
     const result = scheduleProject(project, resources);
     schedules.set(project.id, result.schedule);
     warnings.push(...result.warnings);
   }
 
-  const projectById = new Map(projects.map((project) => [project.id, project]));
+  const projectById = new Map(units.map((project) => [project.id, project]));
   const days = eachDate(from, to);
   const byResource = new Map<string, Map<IsoDate, DayCell>>();
 
@@ -321,11 +405,15 @@ export function buildPlan(
         const cell = cells.get(iso);
         if (!cell) continue;
         cell.bookedHours += hours;
+        if (project.status === "tentativ") cell.tentativeHours += hours;
         cell.projects.push({
-          id: project.id,
+          id: project.parentId ?? project.id,
+          parentId: project.parentId,
+          phaseName: project.phaseName,
           name: project.name,
           color: project.color,
           hours,
+          tentative: project.status === "tentativ",
         });
       }
     }
@@ -349,6 +437,7 @@ export type WeekCell = {
   sunday: IsoDate;
   capacityHours: number;
   bookedHours: number;
+  tentativeHours: number;
   level: LoadLevel;
   hasOverloadedDay: boolean;
   absenceDays: number;
@@ -370,6 +459,7 @@ function aggregateWeek(
 ): WeekCell {
   let capacityHours = 0;
   let bookedHours = 0;
+  let tentativeHours = 0;
   let absenceDays = 0;
   let hasOverloadedDay = false;
   const projectHours = new Map<string, ProjectSlice>();
@@ -377,12 +467,14 @@ function aggregateWeek(
   for (const day of dayCells) {
     capacityHours += day.capacityHours;
     bookedHours += day.bookedHours;
+    tentativeHours += day.tentativeHours;
     if (day.absenceReason) absenceDays += 1;
     if (day.level === "over") hasOverloadedDay = true;
     for (const project of day.projects) {
-      const current = projectHours.get(project.id);
+      const key = `${project.id}:${project.phaseName ?? ""}`;
+      const current = projectHours.get(key);
       if (current) current.hours += project.hours;
-      else projectHours.set(project.id, { ...project });
+      else projectHours.set(key, { ...project });
     }
   }
 
@@ -394,6 +486,7 @@ function aggregateWeek(
     sunday,
     capacityHours,
     bookedHours,
+    tentativeHours,
     level: loadLevel(bookedHours, capacityHours),
     hasOverloadedDay,
     absenceDays,
@@ -423,24 +516,28 @@ export function totalWeekCells(rows: WeekRow[]): WeekCell[] {
     const cells = rows.map((row) => row.cells[index]);
     let capacityHours = 0;
     let bookedHours = 0;
+    let tentativeHours = 0;
     let absenceDays = 0;
     let hasOverloadedDay = false;
     const projectHours = new Map<string, ProjectSlice>();
     for (const cell of cells) {
       capacityHours += cell.capacityHours;
       bookedHours += cell.bookedHours;
+      tentativeHours += cell.tentativeHours;
       absenceDays += cell.absenceDays;
       if (cell.level === "over" || cell.hasOverloadedDay) hasOverloadedDay = true;
       for (const project of cell.projects) {
-        const current = projectHours.get(project.id);
+        const key = `${project.id}:${project.phaseName ?? ""}`;
+        const current = projectHours.get(key);
         if (current) current.hours += project.hours;
-        else projectHours.set(project.id, { ...project });
+        else projectHours.set(key, { ...project });
       }
     }
     return {
       ...sample,
       capacityHours,
       bookedHours,
+      tentativeHours,
       absenceDays,
       hasOverloadedDay,
       level: loadLevel(bookedHours, capacityHours),
@@ -485,6 +582,8 @@ export type AssignmentPreview = {
     bookedHours: number;
     capacityHours: number;
   } | null;
+  overloads: OverloadSpan[];
+  suggestions: ReplacementSuggestion[];
 };
 
 function worseLoad(
@@ -520,42 +619,185 @@ export function previewAssignment(
       return { id: resource.id, ...sumCells(cells) };
     });
 
-  const { schedule } = scheduleProject(draft, resources);
-  const peakEnd = schedule.finishDate && schedule.finishDate > to ? schedule.finishDate : to;
-  const peakPlan = peakEnd === to ? existing : buildPlan(resources, others, from, peakEnd);
+  const draftUnits = expandProjects([draft]);
+  let finishDate: IsoDate | null = null;
+  let unallocatedHours = 0;
+  const draftBookings = new Map<string, Map<IsoDate, number>>();
+  for (const unit of draftUnits) {
+    const { schedule } = scheduleProject(unit, resources);
+    unallocatedHours += schedule.unallocatedHours;
+    if (schedule.finishDate && (!finishDate || schedule.finishDate > finishDate)) {
+      finishDate = schedule.finishDate;
+    }
+    for (const [resourceId, byDate] of schedule.bookings) {
+      for (const [date, hours] of byDate) addBooking(draftBookings, resourceId, date, hours);
+    }
+  }
+  const peakEnd = finishDate && finishDate > to ? finishDate : to;
+  const combined = buildPlan(
+    resources,
+    [...others.filter((project) => project.id !== draft.id), draft],
+    from,
+    peakEnd,
+  );
 
   let peak: AssignmentPreview["peak"] = null;
-  for (const [resourceId, byDate] of schedule.bookings) {
-    for (const [date, hours] of byDate) {
-      const cell = peakPlan.byResource.get(resourceId)?.get(date);
-      const capacityHours = cell?.capacityHours ?? dailyCapacity(
-        resources.find((resource) => resource.id === resourceId)?.weeklyCapacityHours ?? 0,
-      );
-      const bookedHours = (cell?.bookedHours ?? 0) + hours;
+  for (const [resourceId, byDate] of draftBookings) {
+    for (const date of byDate.keys()) {
+      const cell = combined.byResource.get(resourceId)?.get(date);
+      const capacityHours = cell?.capacityHours ?? 0;
+      const bookedHours = cell?.bookedHours ?? 0;
       if (!peak || worseLoad(bookedHours, capacityHours, peak)) {
         peak = { resourceId, date, bookedHours, capacityHours };
       }
     }
   }
 
+  const assignedIds = new Set(assignmentList(draft).map((assignment) => assignment.resourceId));
+  for (const phase of draft.phases ?? []) {
+    for (const assignment of phase.assignments) assignedIds.add(assignment.resourceId);
+  }
+  const relevant = resources.filter((resource) => assignedIds.has(resource.id));
+  const rows = weekRows(combined, relevant, from, peakEnd);
+  const overloads = overloadSpans(rows, relevant);
+  const suggestions = suggestReplacements(resources, weekRows(combined, resources.filter((resource) => resource.active), from, peakEnd), overloads);
+
   return {
     from,
     to,
     perResource,
-    finishDate: schedule.finishDate,
-    unallocatedHours: schedule.unallocatedHours,
+    finishDate,
+    unallocatedHours,
     peak,
+    overloads,
+    suggestions,
   };
+}
+
+export type OverloadSpan = {
+  resourceId: string;
+  resourceName: string;
+  role: string;
+  fromWeek: number;
+  toWeek: number;
+  monday: IsoDate;
+  label: string;
+};
+
+export function overloadSpans(rows: WeekRow[], resources: ResourceInput[]): OverloadSpan[] {
+  const spans: OverloadSpan[] = [];
+  for (const row of rows) {
+    const resource = resources.find((item) => item.id === row.resourceId);
+    if (!resource) continue;
+    let open: OverloadSpan | null = null;
+    for (const cell of row.cells) {
+      if (cell.level === "over") {
+        if (!open) {
+          open = {
+            resourceId: resource.id,
+            resourceName: resource.name,
+            role: resource.role,
+            fromWeek: cell.week,
+            toWeek: cell.week,
+            monday: cell.monday,
+            label: "",
+          };
+        } else if (cell.week === open.toWeek + 1 || (open.toWeek >= 52 && cell.week === 1)) {
+          open.toWeek = cell.week;
+        } else {
+          spans.push(finishSpan(open));
+          open = {
+            resourceId: resource.id,
+            resourceName: resource.name,
+            role: resource.role,
+            fromWeek: cell.week,
+            toWeek: cell.week,
+            monday: cell.monday,
+            label: "",
+          };
+        }
+      } else if (open) {
+        spans.push(finishSpan(open));
+        open = null;
+      }
+    }
+    if (open) spans.push(finishSpan(open));
+  }
+  return spans;
+}
+
+function finishSpan(span: OverloadSpan): OverloadSpan {
+  const label = span.fromWeek === span.toWeek ? `uke ${span.fromWeek}` : `uke ${span.fromWeek}–${span.toWeek}`;
+  return { ...span, label };
+}
+
+export type ReplacementSuggestion = {
+  forResourceId: string;
+  id: string;
+  name: string;
+  role: string;
+  freeHours: number;
+};
+
+export function suggestReplacements(
+  resources: ResourceInput[],
+  rows: WeekRow[],
+  spans: OverloadSpan[],
+): ReplacementSuggestion[] {
+  const suggestions: ReplacementSuggestion[] = [];
+  const seen = new Set<string>();
+  for (const span of spans) {
+    const person = resources.find((resource) => resource.id === span.resourceId);
+    if (!person) continue;
+    const indexes = rows[0]?.cells
+      .map((cell, index) => ({ cell, index }))
+      .filter(({ cell }) => {
+        if (span.fromWeek <= span.toWeek) return cell.week >= span.fromWeek && cell.week <= span.toWeek;
+        return cell.week >= span.fromWeek || cell.week <= span.toWeek;
+      })
+      .map(({ index }) => index) ?? [];
+    const candidates = resources
+      .filter((resource) => resource.active && resource.id !== person.id && resource.role === person.role)
+      .map((resource) => {
+        const row = rows.find((item) => item.resourceId === resource.id);
+        const freeHours = indexes.reduce((sum, index) => {
+          const cell = row?.cells[index];
+          if (!cell) return sum;
+          return sum + Math.max(0, cell.capacityHours - cell.bookedHours);
+        }, 0);
+        const overloaded = indexes.some((index) => row?.cells[index]?.level === "over");
+        return { resource, freeHours, overloaded };
+      })
+      .filter((candidate) => !candidate.overloaded && candidate.freeHours > 0.5)
+      .sort((a, b) => b.freeHours - a.freeHours)
+      .slice(0, 3);
+    for (const candidate of candidates) {
+      const key = `${span.resourceId}:${candidate.resource.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      suggestions.push({
+        forResourceId: span.resourceId,
+        id: candidate.resource.id,
+        name: candidate.resource.name,
+        role: candidate.resource.role,
+        freeHours: candidate.freeHours,
+      });
+    }
+  }
+  return suggestions;
 }
 
 export type GanttBar = {
   projectId: string;
+  phaseId: string | null;
   name: string;
   color: string;
   startWeekIndex: number;
   endWeekIndex: number;
   finishDate: IsoDate | null;
   openEnded: boolean;
+  tentative: boolean;
+  resourceIds: string[];
 };
 
 export function ganttBars(
@@ -567,10 +809,11 @@ export function ganttBars(
   const weeks = weeksCovering(from, to);
   if (weeks.length === 0) return [];
   const bars: GanttBar[] = [];
-  for (const project of projects) {
+  for (const project of expandProjects(projects)) {
     if (project.status === "ferdig") continue;
     const schedule = schedules.get(project.id);
-    const finish = project.endDate ?? schedule?.finishDate ?? null;
+    if (!schedule) continue;
+    const finish = project.endDate ?? schedule.finishDate ?? null;
     if (!finish) continue;
     const start = project.startDate;
     if (finish < from || start > to) continue;
@@ -581,13 +824,16 @@ export function ganttBars(
     let endWeekIndex = weeks.findIndex((week) => finish <= week.sunday && finish >= week.monday);
     if (endWeekIndex < 0) endWeekIndex = finish > to ? weeks.length - 1 : 0;
     bars.push({
-      projectId: project.id,
+      projectId: project.parentId ?? project.id,
+      phaseId: project.phaseName ? project.id : null,
       name: project.name,
       color: project.color,
       startWeekIndex,
       endWeekIndex,
-      finishDate: schedule?.finishDate ?? project.endDate,
+      finishDate: schedule.finishDate ?? project.endDate,
       openEnded: !project.endDate,
+      tentative: project.status === "tentativ",
+      resourceIds: assignmentList(project).map((assignment) => assignment.resourceId),
     });
   }
   return bars;

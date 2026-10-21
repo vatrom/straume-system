@@ -4,10 +4,17 @@ import { deleteProject } from "@/lib/actions";
 import { loadInputs } from "@/lib/data";
 import { todayIso, formatNorwegian } from "@/lib/dates";
 import { STATUS_LABEL, formatHours } from "@/lib/format";
+import { prisma } from "@/lib/db";
 import { buildPlan } from "@/lib/planning";
 
 export default async function ProsjekterPage() {
   const { resources, projects, resourceInputs, projectInputs } = await loadInputs();
+  const logged = await prisma.timeEntry.groupBy({
+    by: ["projectId"],
+    where: { projectId: { not: null }, unmappedReason: "" },
+    _sum: { hours: true },
+  });
+  const loggedHours = new Map(logged.map((row) => [row.projectId, row._sum.hours ?? 0]));
   const today = todayIso();
   const plan = buildPlan(resourceInputs, projectInputs, today, today);
   const names = new Map(resources.map((resource) => [resource.id, resource.name]));
@@ -49,6 +56,7 @@ export default async function ProsjekterPage() {
                     </>
                   ) : null}{" "}
                   · <strong>{formatHours(project.estimatedHours)} t</strong>
+                  {loggedHours.get(project.id) ? ` · ført ${formatHours(loggedHours.get(project.id) ?? 0)} t` : ""}
                 </p>
                 <p className="meta">
                   {project.assignments.length === 0

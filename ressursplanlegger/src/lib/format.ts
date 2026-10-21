@@ -56,6 +56,7 @@ export const ROLE_SUGGESTIONS = [
 export const ABSENCE_REASONS = ["Ferie", "Sykdom", "Permisjon", "Kurs", "Annet"];
 
 export const STATUS_LABEL: Record<string, string> = {
+  tentativ: "Tilbud",
   planlagt: "Planlagt",
   pågår: "Pågår",
   ferdig: "Ferdig",

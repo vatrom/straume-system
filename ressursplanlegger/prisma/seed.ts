@@ -1,14 +1,55 @@
 import { prisma } from "../src/lib/db";
 import { addDays, isoToDate, mondayOf, todayIso } from "../src/lib/dates";
+import { hashPassword } from "../src/lib/password";
+
+async function ensureAdmin() {
+  const email = "admin@straume.no";
+  const existing = await prisma.user.findUnique({ where: { email } });
+  if (existing) return;
+  const password = process.env.ADMIN_INITIAL_PASSWORD || "Straume2026!";
+  await prisma.user.create({
+    data: {
+      email,
+      name: "Administrator",
+      role: "admin",
+      passwordHash: hashPassword(password),
+    },
+  });
+  console.log("Opprettet administrator admin@straume.no. Bytt passord under Konto etter første innlogging.");
+}
+
+async function ensureTentative(monday: string) {
+  const found = await prisma.project.findFirst({ where: { name: "Tilbud anneks Solheim" } });
+  if (found) return;
+  const ole = await prisma.resource.findFirst({ where: { name: "Ole Nilsen" } });
+  if (!ole) return;
+  const on = (offset: number) => isoToDate(addDays(monday, offset));
+  await prisma.project.create({
+    data: {
+      name: "Tilbud anneks Solheim",
+      customer: "Solheim",
+      address: "Solheim 3",
+      startDate: on(42),
+      endDate: on(56),
+      estimatedHours: 40,
+      status: "tentativ",
+      color: "#a65d32",
+      isExample: true,
+      assignments: { create: [{ resourceId: ole.id, allocationPercent: 100 }] },
+    },
+  });
+}
 
 async function main() {
+  await ensureAdmin();
+  const monday = mondayOf(todayIso());
   const existing = await prisma.resource.count();
   if (existing > 0) {
+    await ensureTentative(monday);
     console.log("Databasen har allerede data. Hopper over eksempeldata.");
     return;
   }
 
-  const monday = mondayOf(todayIso());
   const on = (offset: number) => isoToDate(addDays(monday, offset));
 
   const kari = await prisma.resource.create({
@@ -114,6 +155,7 @@ async function main() {
     },
   });
 
+  await ensureTentative(monday);
   console.log("La inn eksempeldata fra og med", monday);
 }
 

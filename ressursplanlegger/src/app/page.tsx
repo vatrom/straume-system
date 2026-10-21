@@ -4,8 +4,9 @@ import { deleteExampleData } from "@/lib/actions";
 import { getDashboard } from "@/lib/data";
 import { LEVEL_LABEL, formatHours } from "@/lib/format";
 
-export default async function HomePage() {
-  const data = await getDashboard();
+export default async function HomePage({ searchParams }: { searchParams: Promise<{ fag?: string }> }) {
+  const params = await searchParams;
+  const data = await getDashboard(params.fag ?? "");
   const freePeople = data.nextWeekPeople.filter((person) => person.level === "free").length;
 
   return (
@@ -49,6 +50,16 @@ export default async function HomePage() {
         </section>
       ) : (
         <>
+          <div className="chips">
+            <Link className={!data.fag ? "chip selected" : "chip"} href="/">
+              Alle fag
+            </Link>
+            {data.roles.map((role) => (
+              <Link key={role.role} className={data.fag === role.role ? "chip selected" : "chip"} href={`/?fag=${encodeURIComponent(role.role)}`}>
+                {role.role}: {formatHours(role.freeHours)} t ledig
+              </Link>
+            ))}
+          </div>
           <section className="stat-grid">
             <Link className="card stat-card" href="/kapasitet">
               <span>Ledige timer neste 4 uker</span>
@@ -71,16 +82,15 @@ export default async function HomePage() {
 
           <section className="split">
             <div className="panel">
-              <h2>Uker som er for fulle</h2>
-              {data.overloadWeeks.length === 0 ? (
+              <h2>Overbelastning</h2>
+              {data.overloadSpans.length === 0 ? (
                 <p>Ingen overbelastning de neste 16 ukene.</p>
               ) : (
-                data.overloadWeeks.map((week) => (
-                  <a key={week.id} className="overload-item" href={`/kapasitet?visning=dag&fra=${week.monday}`}>
+                data.overloadSpans.map((span) => (
+                  <a key={`${span.resourceId}-${span.label}`} className="overload-item" href={`/kapasitet?visning=dag&fra=${span.monday}${data.fag ? `&fag=${encodeURIComponent(data.fag)}` : ""}`}>
                     <strong>
-                      {week.label} <span className="meta">{week.range}</span>
+                      {span.resourceName} er overbooket i {span.label}
                     </strong>
-                    <span>{week.names.join(", ")}</span>
                   </a>
                 ))
               )}

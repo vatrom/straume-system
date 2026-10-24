@@ -1,0 +1,20 @@
+FROM node:22-bookworm-slim
+
+WORKDIR /app
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends openssl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY package.json package-lock.json ./
+COPY prisma ./prisma
+COPY scripts ./scripts
+RUN npm ci
+
+COPY . .
+ENV DATABASE_URL="file:/data/app.db"
+RUN npx prisma generate && npm run build
+
+EXPOSE 3000
+
+CMD ["sh", "-c", "mkdir -p /data && node scripts/prepare-prisma.mjs && npx prisma generate && case \"$DATABASE_URL\" in postgres*) npx prisma migrate deploy ;; *) npx prisma db push ;; esac && npx tsx prisma/seed.ts && npm start"]

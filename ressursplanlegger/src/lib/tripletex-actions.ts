@@ -71,6 +71,9 @@ export async function importTripletexCatalog(kind: "ansatte" | "prosjekter") {
     if (!api) return { error: "Tripletex er ikke satt opp." };
     if (kind === "ansatte") {
       const [employees, jobs] = await Promise.all([api.employees(), api.employments()]);
+      if (employees.length > 0 && jobs.length === 0) {
+        return { error: "Tripletex returnerte ansatte uten ansettelser. Ingen ressurser ble endret." };
+      }
       const period = employmentWindow(todayIso());
       const current = selectCurrentEmployees(employees, jobs, period.from, period.to);
       const resources = await prisma.resource.findMany({
@@ -119,6 +122,8 @@ export async function importTripletexCatalog(kind: "ansatte" | "prosjekter") {
         status: true,
         archived: true,
         syncIgnored: true,
+        _count: { select: { assignments: true } },
+        phases: { select: { _count: { select: { assignments: true } } } },
       },
     });
     const local: LocalProject[] = projects.map((project) => ({
@@ -132,13 +137,16 @@ export async function importTripletexCatalog(kind: "ansatte" | "prosjekter") {
       status: project.status,
       archived: project.archived,
       syncIgnored: project.syncIgnored,
+      hasAllocations:
+        project._count.assignments > 0 || project.phases.some((phase) => phase._count.assignments > 0),
     }));
     const plan = planProjectImports(remote, local, todayIso());
     const result = await applyProjectImports(plan);
     const skipped = plan.filter((change) => change.kind === "skip").length;
+    const kept = plan.filter((change) => change.kind === "keep").length;
     refresh();
     return {
-      ok: `La inn ${result.created} prosjekter og oppdaterte ${result.updated}.${result.archived ? ` ${result.archived} arkivert.` : ""}${skipped ? ` ${skipped} hoppet over.` : ""} Fyll inn timer og ressurser før de belaster planen.`,
+      ok: `La inn ${result.created} prosjekter og oppdaterte ${result.updated}.${result.archived ? ` ${result.archived} arkivert.` : ""}${kept ? ` ${kept} interne med tildeling beholdt.` : ""}${skipped ? ` ${skipped} hoppet over.` : ""} Fyll inn timer og ressurser før de belaster planen.`,
     };
   } catch (error) {
     return { error: error instanceof Error ? error.message : "Kunne ikke hente fra Tripletex." };

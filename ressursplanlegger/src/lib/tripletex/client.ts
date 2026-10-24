@@ -1,7 +1,7 @@
 import { readTripletexConfig } from "./config";
 import {
+  employmentsOnEmployee,
   normalizeEmployee,
-  normalizeEmployment,
   normalizeEntry,
   normalizeProject,
   normalizeWeek,
@@ -20,9 +20,12 @@ import type {
   TripletexWeek,
 } from "./types";
 
-/** Property names that exist on the Tripletex v2 DTOs. weekYear is a query param, not a Week field. */
-export const EMPLOYEE_FIELDS = "id,firstName,lastName,isContact,isProxy,allowInformationRegistration";
-export const EMPLOYMENT_FIELDS = "employee(id),startDate,endDate,noEmploymentRelationship";
+/**
+ * Property names that exist on the Tripletex v2 DTOs. weekYear is a query param, not a Week field.
+ * Employments are nested on /employee. GET /employee/employment without employeeId returns an empty list.
+ */
+export const NESTED_EMPLOYMENT_FIELDS = "startDate,endDate,noEmploymentRelationship";
+export const EMPLOYEE_FIELDS = `id,firstName,lastName,isContact,isProxy,allowInformationRegistration,employments(${NESTED_EMPLOYMENT_FIELDS})`;
 export const PROJECT_FIELDS = "id,number,name,startDate,endDate,isClosed,isInternal,customer(id,name)";
 export const ENTRY_FIELDS = "id,date,hours,comment,employee(id,firstName,lastName),project(id,number,name),activity(name)";
 export const WEEK_FIELDS = "employee(id),year,week,completed";
@@ -144,20 +147,28 @@ export async function createTripletexApi(
 ): Promise<TripletexApi | null> {
   if (!config.configured) return null;
   const sessionToken = await openSession(config, fetchImpl);
-  return {
-    employees: async () => {
+  let staffRequest: Promise<{ employees: TripletexEmployee[]; employments: TripletexEmployment[] }> | null = null;
+  const loadStaff = () => {
+    staffRequest ??= (async () => {
       const rows = await getAll(config, sessionToken, "/employee", { fields: EMPLOYEE_FIELDS }, fetchImpl);
-      return staffEmployees(rows.map(normalizeEmployee).filter((row): row is TripletexEmployee => Boolean(row)));
-    },
+      const employees: TripletexEmployee[] = [];
+      const employments: TripletexEmployment[] = [];
+      for (const raw of rows) {
+        const employee = normalizeEmployee(raw);
+        if (!employee) continue;
+        employees.push(employee);
+        employments.push(...employmentsOnEmployee(raw, employee.id));
+      }
+      return { employees: staffEmployees(employees), employments };
+    })();
+    return staffRequest;
+  };
+  return {
+    employees: async () => (await loadStaff()).employees,
     employments: async () => {
-      const rows = await getAll(
-        config,
-        sessionToken,
-        "/employee/employment",
-        { fields: EMPLOYMENT_FIELDS },
-        fetchImpl,
-      );
-      return rows.map(normalizeEmployment).filter((row): row is TripletexEmployment => Boolean(row));
+      const staff = await loadStaff();
+      const visible = new Set(staff.employees.map((employee) => employee.id));
+      return staff.employments.filter((job) => visible.has(job.employeeId));
     },
     projects: async () => {
       const rows = await getAll(config, sessionToken, "/project", { fields: PROJECT_FIELDS }, fetchImpl);

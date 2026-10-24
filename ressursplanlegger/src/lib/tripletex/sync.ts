@@ -61,8 +61,8 @@ export function classifyEntry(entry: TripletexEntry, links: SyncLinks): Classifi
     tripletexProjectId: entry.projectId,
     employeeName: entry.employeeName,
     projectLabel: [entry.projectNumber, entry.projectName].filter(Boolean).join(" "),
-    resourceId: unmappedReason ? null : resourceId,
-    projectId: unmappedReason ? null : projectId,
+    resourceId,
+    projectId,
     unmappedReason,
   };
 }

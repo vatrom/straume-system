@@ -58,6 +58,73 @@ export const realisticTripletex = {
       { id: 2, employee: { id: 12 }, startDate: "2015-01-01", endDate: "2024-05-31", noEmploymentRelationship: false },
     ],
   },
+  emptyEmploymentSearch: {
+    fullResultSize: 0,
+    from: 0,
+    count: 1000,
+    values: [],
+  },
+  /**
+   * Real shape: employments are nested on Employee and have no employee id of their own.
+   * The unfiltered /employee/employment search is a separate, empty list.
+   */
+  employeesWithEmployments: {
+    fullResultSize: 6,
+    from: 0,
+    count: 1000,
+    values: [
+      {
+        id: 1,
+        firstName: "Kari",
+        lastName: "Haugen",
+        isContact: false,
+        isProxy: false,
+        allowInformationRegistration: false,
+        employments: [{ id: 101, startDate: "2019-04-01", endDate: null, noEmploymentRelationship: false }],
+      },
+      {
+        id: 2,
+        firstName: "Sluttet",
+        lastName: "I fjor",
+        isContact: false,
+        isProxy: false,
+        allowInformationRegistration: true,
+        employments: [{ id: 102, startDate: "2010-01-01", endDate: "2024-05-31", noEmploymentRelationship: false }],
+      },
+      {
+        id: 3,
+        firstName: "Per",
+        lastName: "Kontakt",
+        isContact: true,
+        isProxy: false,
+        employments: [{ id: 103, startDate: "2020-01-01", endDate: null, noEmploymentRelationship: false }],
+      },
+      {
+        id: 4,
+        firstName: "Regnskap",
+        lastName: "Kontor",
+        isContact: false,
+        isProxy: true,
+        employments: [{ id: 104, startDate: "2020-01-01", endDate: null, noEmploymentRelationship: false }],
+      },
+      {
+        id: 5,
+        firstName: "Pensjon",
+        lastName: "Uten",
+        isContact: false,
+        isProxy: false,
+        employments: [{ id: 105, startDate: "2020-01-01", endDate: null, noEmploymentRelationship: true }],
+      },
+      {
+        id: 6,
+        firstName: "Ny",
+        lastName: "I morgen",
+        isContact: false,
+        isProxy: false,
+        employments: [{ id: 106, startDate: "2026-10-25", endDate: null, noEmploymentRelationship: false }],
+      },
+    ],
+  },
   weekError: {
     status: 400,
     code: 4000,

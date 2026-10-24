@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { basicAuthHeader, createTripletexApi, EMPLOYMENT_FIELDS, ENTRY_FIELDS, PROJECT_FIELDS, sessionRequest, WEEK_FIELDS } from "./client";
+import { basicAuthHeader, createTripletexApi, EMPLOYEE_FIELDS, ENTRY_FIELDS, PROJECT_FIELDS, sessionRequest, WEEK_FIELDS } from "./client";
 import { readTripletexConfig } from "./config";
 import { realisticTripletex, tripletexFixture } from "./fixture";
 import { bestEmployeeMatch, bestProjectMatch } from "./match";
@@ -128,7 +128,26 @@ describe("tripletex-kobling", () => {
     assert.equal(classified[0]?.unmappedReason, "");
     assert.equal(classified[0]?.externalId, "tt:501");
     assert.equal(classified[1]?.unmappedReason.includes("koblet"), true);
+    assert.equal(classified[1]?.resourceId, null);
     assert.equal(classified[1]?.projectId, null);
+    const partial = classifyEntries(
+      [{ ...entries[0], projectId: 999, projectNumber: "9999", projectName: "Ikke importert" }],
+      {
+        employeeToResource: new Map([[10, "kari"]]),
+        projectIdToProject: new Map(),
+        projectNumberToProject: new Map(),
+      },
+    );
+    assert.equal(partial[0]?.resourceId, "kari");
+    assert.equal(partial[0]?.projectId, null);
+    assert.match(partial[0]?.unmappedReason ?? "", /Prosjekt/);
+    const onlyProject = classifyEntries([entries[0]], {
+      employeeToResource: new Map(),
+      projectIdToProject: new Map([[200, "tilbygg"]]),
+      projectNumberToProject: new Map(),
+    });
+    assert.equal(onlyProject[0]?.resourceId, null);
+    assert.equal(onlyProject[0]?.projectId, "tilbygg");
     const byNumber = classifyEntries([entries[0]], {
       employeeToResource: new Map([[10, "kari"]]),
       projectIdToProject: new Map(),
@@ -155,6 +174,16 @@ describe("tripletex-kobling", () => {
     const changed = mergeByExternalId(once.rows, [{ ...first, hours: 5 }]);
     assert.equal(changed.updated, 1);
     assert.equal(changed.rows[0]?.hours, 5);
+    const unlinked = mergeByExternalId(
+      [{ ...first, id: first.externalId, resourceId: null, projectId: null, unmappedReason: "Verken ansatt eller prosjekt er koblet." }],
+      [first],
+    );
+    assert.equal(unlinked.updated, 1);
+    assert.equal(unlinked.unchanged, 0);
+    assert.equal(unlinked.rows.length, 1);
+    assert.equal(unlinked.rows[0]?.resourceId, "kari");
+    assert.equal(unlinked.rows[0]?.projectId, "tilbygg");
+    assert.equal(unlinked.rows[0]?.unmappedReason, "");
   });
 
   it("foreslår treff på navn og prosjektnummer", () => {
@@ -382,6 +411,50 @@ describe("tripletex-import", () => {
     assert.ok(back && back.kind === "update");
     assert.equal(back.archived, false);
     assert.equal(back.status, "planlagt");
+
+    const hidden = planProjectImports(
+      [remoteProject({ id: 8, name: "Internt lager", internal: true })],
+      [localProject({ id: "p8", name: "Internt lager", tripletexProjectId: 8, status: "pågår" })],
+      "2026-10-24",
+    );
+    const archivedInternal = hidden.find((change) => change.kind === "update" && change.localId === "p8");
+    assert.ok(archivedInternal && archivedInternal.kind === "update");
+    assert.equal(archivedInternal.archived, true);
+    assert.equal(archivedInternal.status, "ferdig");
+    assert.equal(hidden.some((change) => change.kind === "keep"), false);
+
+    const kept = planProjectImports(
+      [
+        remoteProject({ id: 8, name: "Internt lager", internal: true }),
+        remoteProject({ id: 5, name: "Lukket med folk", closed: true }),
+      ],
+      [
+        localProject({
+          id: "p8",
+          name: "Internt lager",
+          tripletexProjectId: 8,
+          status: "ferdig",
+          archived: true,
+          hasAllocations: true,
+        }),
+        localProject({
+          id: "p5",
+          name: "Lukket med folk",
+          tripletexProjectId: 5,
+          status: "pågår",
+          hasAllocations: true,
+        }),
+      ],
+      "2026-10-24",
+    );
+    const keptInternal = kept.find((change) => change.kind === "update" && change.localId === "p8");
+    assert.ok(keptInternal && keptInternal.kind === "update");
+    assert.equal(keptInternal.archived, false);
+    assert.equal(keptInternal.status, "planlagt");
+    assert.equal(kept.some((change) => change.kind === "keep" && change.tripletexProjectId === 8), true);
+    const closedWithPeople = kept.find((change) => change.kind === "update" && change.localId === "p5");
+    assert.ok(closedWithPeople && closedWithPeople.kind === "update");
+    assert.equal(closedWithPeople.archived, true);
   });
 
   it("godtar SYNC_SECRET og den eldre synk-hemmeligheten", () => {
@@ -406,7 +479,7 @@ describe("tripletex-uke-og-ansettelse", () => {
     assert.equal(job?.endDate, "2024-05-31");
   });
 
-  it("henter uke med year,week og ansettelser, og viser 400-teksten", async () => {
+  it("henter uke med year og week, og viser 400-teksten", async () => {
     const calls: string[] = [];
     const config = readTripletexConfig({ TRIPLETEX_REFRESH_TOKEN: "hemmelig-refresh" });
     const api = await createTripletexApi(config, async (url) => {
@@ -417,9 +490,6 @@ describe("tripletex-uke-og-ansettelse", () => {
       if (String(url).includes("/timesheet/week")) {
         return new Response(JSON.stringify(realisticTripletex.weekList), { status: 200 });
       }
-      if (String(url).includes("/employee/employment")) {
-        return new Response(JSON.stringify(realisticTripletex.employmentList), { status: 200 });
-      }
       return new Response(JSON.stringify({ fullResultSize: 0, values: [] }), { status: 200 });
     });
     assert.ok(api);
@@ -428,10 +498,6 @@ describe("tripletex-uke-og-ansettelse", () => {
     const weekUrl = calls.find((url) => url.includes("/timesheet/week")) ?? "";
     assert.equal(new URL(weekUrl).searchParams.get("fields"), WEEK_FIELDS);
     assert.equal(new URL(weekUrl).searchParams.get("weekYear"), "2026-43");
-    const jobs = await api.employments();
-    assert.equal(jobs[1]?.employeeId, 12);
-    const employmentUrl = calls.find((url) => url.includes("/employee/employment")) ?? "";
-    assert.equal(new URL(employmentUrl).searchParams.get("fields"), EMPLOYMENT_FIELDS);
 
     const failing = await createTripletexApi(config, async (url) => {
       if (String(url).includes("createFromRefreshToken")) {
@@ -570,5 +636,191 @@ describe("tripletex-uke-og-ansettelse", () => {
     assert.match(report.message, /Uke-status/);
     assert.match(report.message, /weekYear/);
     assert.equal(report.message.includes("0 nye prosjekter"), false);
+  });
+
+  it("leser nested employments når /employee/employment er tom", async () => {
+    const calls: string[] = [];
+    const config = readTripletexConfig({ TRIPLETEX_REFRESH_TOKEN: "hemmelig-refresh" });
+    const api = await createTripletexApi(config, async (url) => {
+      calls.push(String(url));
+      const path = new URL(String(url)).pathname;
+      if (path.endsWith("/token/session/:createFromRefreshToken")) {
+        return new Response(JSON.stringify({ value: { token: "sesjon-token" } }), { status: 200 });
+      }
+      if (path.endsWith("/employee/employment")) {
+        return new Response(JSON.stringify(realisticTripletex.emptyEmploymentSearch), { status: 200 });
+      }
+      if (path.endsWith("/employee")) {
+        return new Response(JSON.stringify(realisticTripletex.employeesWithEmployments), { status: 200 });
+      }
+      return new Response(JSON.stringify({ fullResultSize: 0, values: [] }), { status: 200 });
+    });
+    assert.ok(api);
+    const employees = await api.employees();
+    const jobs = await api.employments();
+    const staffCalls = calls.filter((url) => new URL(url).pathname.endsWith("/employee"));
+    assert.equal(staffCalls.length, 1);
+    assert.equal(new URL(staffCalls[0] ?? "http://localhost").searchParams.get("fields"), EMPLOYEE_FIELDS);
+    assert.match(EMPLOYEE_FIELDS, /employments\(startDate,endDate,noEmploymentRelationship\)/);
+    assert.equal(calls.some((url) => url.includes("/employee/employment")), false);
+    assert.deepEqual(
+      employees.map((employee) => employee.id),
+      [1, 2, 5, 6],
+    );
+    assert.deepEqual(
+      jobs.map((job) => job.employeeId),
+      [1, 2, 5, 6],
+    );
+    assert.equal(jobs.find((job) => job.employeeId === 5)?.noEmploymentRelationship, true);
+    assert.equal(jobs.find((job) => job.employeeId === 1)?.startDate, "2019-04-01");
+    const current = selectCurrentEmployees(employees, jobs, "2026-10-24", "2026-10-25");
+    assert.deepEqual(current.map((employee) => employee.id), [1]);
+  });
+
+  it("endrer ingen ressurser når ansettelseslisten er tom", async () => {
+    let appliedEmployees = false;
+    const report = await runSyncPipeline({
+      today: "2026-10-24",
+      employees: async () => [{ id: 10, firstName: "Kari", lastName: "Haugen", isContact: false }],
+      employments: async () => [],
+      projects: async () => [],
+      entries: async () => [],
+      weeks: async () => [],
+      loadResources: async () => [
+        { id: "kari", name: "Kari Haugen", tripletexEmployeeId: 10, active: true, hasHistory: false },
+      ],
+      loadProjects: async () => [],
+      applyEmployees: async () => {
+        appliedEmployees = true;
+        return { linked: 0, created: 0, deactivated: 0, removed: 36, reactivated: 0 };
+      },
+      applyProjects: async () => ({ created: 0, updated: 0, archived: 0 }),
+      loadLinks: async () => ({
+        links: {
+          employeeToResource: new Map(),
+          projectIdToProject: new Map(),
+          projectNumberToProject: new Map(),
+        },
+        ignoredProjectIds: [],
+      }),
+      writeEntry: async () => "unchanged",
+      saveState: async () => {},
+    });
+    assert.equal(appliedEmployees, false);
+    assert.equal(report.employeesRemoved, 0);
+    assert.equal(report.employeesLinked, 0);
+    assert.equal(report.ok, false);
+    assert.match(report.message, /Ingen ressurser ble endret/);
+  });
+
+  it("kobler eksisterende timer på nytt og arkiverer interne uten tildeling", async () => {
+    const entry = (raw: unknown) => {
+      const parsed = normalizeEntry(raw);
+      assert.ok(parsed);
+      return parsed;
+    };
+    const report = await runSyncPipeline({
+      today: "2026-10-24",
+      employees: async () => [{ id: 10, firstName: "Kari", lastName: "Haugen", isContact: false }],
+      employments: async () => [
+        { employeeId: 10, startDate: "2019-04-01", endDate: null, noEmploymentRelationship: false },
+      ],
+      projects: async () => [
+        remoteProject({ id: 200, number: "1042", name: "Tilbygg" }),
+        remoteProject({ id: 8, name: "Internt lager", internal: true }),
+        remoteProject({ id: 9, name: "Internt med folk", internal: true }),
+      ],
+      entries: async () => [
+        entry(tripletexFixture.entries[0]),
+        entry({
+          id: 502,
+          date: "2026-10-21",
+          hours: 4,
+          comment: "Lukket prosjekt",
+          employee: { id: 10, firstName: "Kari", lastName: "Haugen" },
+          project: { id: 300, number: "3000", name: "Ikke importert" },
+          activity: { name: "Timer fastpris" },
+        }),
+        entry({
+          id: 503,
+          date: "2026-10-22",
+          hours: 2,
+          comment: "Ignorert",
+          employee: { id: 10, firstName: "Kari", lastName: "Haugen" },
+          project: { id: 400, number: "4000", name: "Slettet" },
+          activity: { name: "Timer fastpris" },
+        }),
+      ],
+      weeks: async () => [],
+      loadResources: async () => [{ id: "kari", name: "Kari Haugen", tripletexEmployeeId: null, active: true }],
+      loadProjects: async () => [
+        localProject({ id: "intern", name: "Internt lager", tripletexProjectId: 8, status: "pågår" }),
+        localProject({
+          id: "med-folk",
+          name: "Internt med folk",
+          tripletexProjectId: 9,
+          status: "pågår",
+          hasAllocations: true,
+        }),
+      ],
+      applyEmployees: async (changes) => {
+        assert.deepEqual(
+          changes.find((change) => change.tripletexEmployeeId === 10),
+          { kind: "link", resourceId: "kari", tripletexEmployeeId: 10 },
+        );
+        assert.equal(changes.some((change) => change.kind === "create"), false);
+        return { linked: 1, created: 0, deactivated: 0, removed: 0, reactivated: 0 };
+      },
+      applyProjects: async (changes) => {
+        const intern = changes.find((change) => change.kind === "update" && change.localId === "intern");
+        assert.ok(intern && intern.kind === "update");
+        assert.equal(intern.archived, true);
+        assert.equal(changes.some((change) => change.kind === "keep" && change.tripletexProjectId === 9), true);
+        assert.equal(changes.some((change) => change.kind === "update" && change.localId === "med-folk"), false);
+        assert.equal(changes.filter((change) => change.kind === "create").length, 1);
+        return { created: 1, updated: 1, archived: 1 };
+      },
+      loadLinks: async () => ({
+        links: {
+          employeeToResource: new Map([[10, "kari"]]),
+          projectIdToProject: new Map([
+            [200, "tilbygg"],
+            [8, "intern"],
+            [9, "med-folk"],
+          ]),
+          projectNumberToProject: new Map(),
+        },
+        ignoredProjectIds: [400],
+      }),
+      writeEntry: async (row) => {
+        if (row.externalId === "tt:501") {
+          assert.equal(row.resourceId, "kari");
+          assert.equal(row.projectId, "tilbygg");
+          assert.equal(row.unmappedReason, "");
+          return "updated";
+        }
+        if (row.externalId === "tt:502") {
+          assert.equal(row.resourceId, "kari");
+          assert.equal(row.projectId, null);
+          assert.match(row.unmappedReason, /Prosjekt/);
+          return "updated";
+        }
+        assert.equal(row.externalId === "tt:503", false);
+        return "inserted";
+      },
+      saveState: async () => {},
+    });
+    assert.equal(report.employeesLinked, 1);
+    assert.equal(report.employeesCreated, 0);
+    assert.equal(report.updated, 2);
+    assert.equal(report.inserted, 0);
+    assert.equal(report.entriesSkipped, 1);
+    assert.equal(report.entriesWithoutProject, 1);
+    assert.equal(report.projectsArchived, 1);
+    assert.equal(report.projectsKeptInternal, 1);
+    assert.equal(report.projectsCreated, 1);
+    assert.match(report.message, /uten importert prosjekt/);
+    assert.match(report.message, /hoppet over fordi prosjektet er ignorert/);
+    assert.match(report.message, /interne prosjekter beholdt/);
   });
 });

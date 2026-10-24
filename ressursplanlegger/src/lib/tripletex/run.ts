@@ -67,6 +67,8 @@ async function loadProjects(): Promise<LocalProject[]> {
       status: true,
       archived: true,
       syncIgnored: true,
+      _count: { select: { assignments: true } },
+      phases: { select: { _count: { select: { assignments: true } } } },
     },
   });
   return rows.map((project) => ({
@@ -80,6 +82,8 @@ async function loadProjects(): Promise<LocalProject[]> {
     status: project.status,
     archived: project.archived,
     syncIgnored: project.syncIgnored,
+    hasAllocations:
+      project._count.assignments > 0 || project.phases.some((phase) => phase._count.assignments > 0),
   }));
 }
 

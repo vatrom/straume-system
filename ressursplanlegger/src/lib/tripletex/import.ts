@@ -14,6 +14,8 @@ export type LocalProject = {
   status: string;
   archived?: boolean;
   syncIgnored?: boolean;
+  /** Planner assignments or phase assignments. Timesheet hours do not count. */
+  hasAllocations?: boolean;
 };
 
 export type LocalResource = {
@@ -50,7 +52,8 @@ export type ProjectChange =
       status?: "ferdig" | "planlagt";
       archived?: boolean;
     }
-  | { kind: "skip"; tripletexProjectId: number; reason: "closed" | "internal" | "ignored" };
+  | { kind: "skip"; tripletexProjectId: number; reason: "closed" | "internal" | "ignored" }
+  | { kind: "keep"; tripletexProjectId: number; reason: "internal-allocated" };
 
 export type EmployeeChange =
   | { kind: "link"; resourceId: string; tripletexEmployeeId: number; reactivate?: boolean }
@@ -73,7 +76,8 @@ function projectUpdate(local: LocalProject, item: TripletexProject): ProjectChan
   if (item.number && item.number !== local.tripletexProjectNumber) change.number = item.number;
   if (item.startDate && item.startDate !== local.startDate) change.startDate = item.startDate;
   if (item.endDate && item.endDate !== local.endDate) change.endDate = item.endDate;
-  if (item.closed) {
+  const hideInternal = Boolean(item.internal) && !item.closed && !local.hasAllocations;
+  if (item.closed || hideInternal) {
     if (!local.archived) change.archived = true;
     if (local.status !== "tentativ" && local.status !== "ferdig") change.status = "ferdig";
   } else if (local.archived) {
@@ -114,6 +118,7 @@ export function planProjectImports(
       used.add(linked.id);
       const change = projectUpdate(linked, item);
       if (change) changes.push(change);
+      rememberKeptInternal(item, linked, changes);
       continue;
     }
     const byNumber = item.number
@@ -129,6 +134,7 @@ export function planProjectImports(
       used.add(byNumber.id);
       const change = projectUpdate(byNumber, item);
       if (change) changes.push(change);
+      rememberKeptInternal(item, byNumber, changes);
       continue;
     }
     if (item.closed) {
@@ -178,6 +184,12 @@ export function projectUpdateData(change: Extract<ProjectChange, { kind: "update
     ...(change.status !== undefined ? { status: change.status } : {}),
     ...(change.archived !== undefined ? { archived: change.archived } : {}),
   };
+}
+
+function rememberKeptInternal(item: TripletexProject, local: LocalProject, changes: ProjectChange[]) {
+  if (item.internal && !item.closed && local.hasAllocations) {
+    changes.push({ kind: "keep", tripletexProjectId: item.id, reason: "internal-allocated" });
+  }
 }
 
 function kept(resource: LocalResource): boolean {

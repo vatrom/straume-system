@@ -34,6 +34,7 @@ export async function applyProjectImports(changes: ProjectChange[]) {
       created += 1;
       continue;
     }
+    if (change.kind === "keep" || change.kind === "skip") continue;
     if (change.kind !== "update") continue;
     const data = projectUpdateData(change);
     await prisma.project.update({

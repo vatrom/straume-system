@@ -70,10 +70,10 @@ export function staffEmployees(rows: TripletexEmployee[]): TripletexEmployee[] {
   return rows.filter((row) => !row.isContact && row.isProxy !== true);
 }
 
-export function normalizeEmployment(raw: unknown): TripletexEmployment | null {
+export function normalizeEmployment(raw: unknown, fallbackEmployeeId?: number): TripletexEmployment | null {
   const row = record(raw);
   if (!row) return null;
-  const employeeId = nestedId(row.employee) ?? num(row.employeeId);
+  const employeeId = nestedId(row.employee) ?? num(row.employeeId) ?? fallbackEmployeeId ?? null;
   if (employeeId == null) return null;
   return {
     employeeId,
@@ -81,6 +81,15 @@ export function normalizeEmployment(raw: unknown): TripletexEmployment | null {
     endDate: isoDay(row.endDate),
     noEmploymentRelationship: row.noEmploymentRelationship === true,
   };
+}
+
+/** Employments nested on an Employee. The list search without employeeId comes back empty. */
+export function employmentsOnEmployee(raw: unknown, employeeId: number): TripletexEmployment[] {
+  const row = record(raw);
+  if (!row || !Array.isArray(row.employments)) return [];
+  return row.employments
+    .map((item) => normalizeEmployment(item, employeeId))
+    .filter((item): item is TripletexEmployment => Boolean(item));
 }
 
 function isoDay(value: unknown): string | null {

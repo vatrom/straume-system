@@ -41,14 +41,16 @@ async function saveResource(id: string | null, formData: FormData): Promise<Form
   const name = text(formData.get("name"), 80);
   const role = text(formData.get("role"), 60);
   const weekly = parseDecimal(formData.get("weeklyCapacityHours"));
-  const active = checked(formData, "active");
+  const innleid = checked(formData, "innleid");
+  const planExcluded = checked(formData, "planExcluded");
+  const active = planExcluded ? false : checked(formData, "active");
   if (!name) return { error: "Skriv inn navnet." };
   if (!role) return { error: "Skriv inn fag, for eksempel tømrer." };
   if (weekly == null || weekly <= 0 || weekly > 80) {
     return { error: "Ukekapasitet må være et tall mellom 0 og 80." };
   }
 
-  const data = { name, role, weeklyCapacityHours: weekly, active };
+  const data = { name, role, weeklyCapacityHours: weekly, active, innleid, planExcluded };
   if (id) {
     await prisma.resource.update({ where: { id }, data });
   } else {
@@ -60,7 +62,20 @@ async function saveResource(id: string | null, formData: FormData): Promise<Form
 
 export async function deleteResource(id: string) {
   await requireUser();
-  await prisma.resource.delete({ where: { id } });
+  const resource = await prisma.resource.findUnique({ where: { id } });
+  if (!resource) redirect("/ressurser");
+  if (resource.tripletexEmployeeId != null) {
+    await prisma.resource.update({ where: { id }, data: { planExcluded: true, active: false } });
+  } else {
+    await prisma.resource.delete({ where: { id } });
+  }
+  refresh();
+  redirect("/ressurser");
+}
+
+export async function restoreResource(id: string) {
+  await requireUser();
+  await prisma.resource.update({ where: { id }, data: { planExcluded: false, active: true } });
   refresh();
   redirect("/ressurser");
 }
@@ -208,7 +223,20 @@ async function saveProject(id: string | null, formData: FormData): Promise<FormS
 
 export async function deleteProject(id: string) {
   await requireUser();
-  await prisma.project.delete({ where: { id } });
+  const project = await prisma.project.findUnique({ where: { id } });
+  if (!project) redirect("/prosjekter");
+  if (project.tripletexProjectId != null) {
+    await prisma.project.update({ where: { id }, data: { syncIgnored: true } });
+  } else {
+    await prisma.project.delete({ where: { id } });
+  }
+  refresh();
+  redirect("/prosjekter");
+}
+
+export async function restoreProject(id: string) {
+  await requireUser();
+  await prisma.project.update({ where: { id }, data: { syncIgnored: false } });
   refresh();
   redirect("/prosjekter");
 }

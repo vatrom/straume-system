@@ -1,46 +1,13 @@
 import { prisma } from "../db";
-import { dateToIso, todayIso } from "../dates";
-import { isoToDate } from "../dates";
+import { dateToIso, isoToDate, todayIso } from "../dates";
 import { applyEmployeeImports, applyProjectImports } from "./apply";
 import { createTripletexApi } from "./client";
 import { readTripletexConfig } from "./config";
-import { planEmployeeImports, planProjectImports, type LocalProject } from "./import";
-import {
-  classifyEntries,
-  incompleteWeekCount,
-  syncWindow,
-  weekYearsBetween,
-  type SyncLinks,
-} from "./sync";
+import type { LocalProject, LocalResource } from "./import";
+import { emptyCounts, runSyncPipeline, type SyncReport } from "./pipeline";
+import type { SyncLinks } from "./sync";
 
-export type SyncReport = {
-  ok: boolean;
-  disabled?: boolean;
-  inserted: number;
-  updated: number;
-  unchanged: number;
-  unmapped: number;
-  incompleteWeeks: number;
-  projectsCreated: number;
-  projectsUpdated: number;
-  projectsSkipped: number;
-  employeesLinked: number;
-  employeesCreated: number;
-  message: string;
-};
-
-const emptyCounts = {
-  inserted: 0,
-  updated: 0,
-  unchanged: 0,
-  unmapped: 0,
-  incompleteWeeks: 0,
-  projectsCreated: 0,
-  projectsUpdated: 0,
-  projectsSkipped: 0,
-  employeesLinked: 0,
-  employeesCreated: 0,
-};
+export type { SyncReport };
 
 function linksFromRows(
   resources: { id: string; tripletexEmployeeId: number | null }[],
@@ -59,6 +26,63 @@ function linksFromRows(
   return { employeeToResource, projectIdToProject, projectNumberToProject };
 }
 
+async function loadResources(): Promise<LocalResource[]> {
+  const rows = await prisma.resource.findMany({
+    select: {
+      id: true,
+      name: true,
+      tripletexEmployeeId: true,
+      innleid: true,
+      planExcluded: true,
+      active: true,
+      _count: { select: { assignments: true, phaseAssignments: true, timeEntries: true, absences: true } },
+    },
+  });
+  return rows.map((resource) => ({
+    id: resource.id,
+    name: resource.name,
+    tripletexEmployeeId: resource.tripletexEmployeeId,
+    innleid: resource.innleid,
+    planExcluded: resource.planExcluded,
+    active: resource.active,
+    hasHistory:
+      resource._count.assignments +
+        resource._count.phaseAssignments +
+        resource._count.timeEntries +
+        resource._count.absences >
+      0,
+  }));
+}
+
+async function loadProjects(): Promise<LocalProject[]> {
+  const rows = await prisma.project.findMany({
+    select: {
+      id: true,
+      name: true,
+      customer: true,
+      tripletexProjectId: true,
+      tripletexProjectNumber: true,
+      startDate: true,
+      endDate: true,
+      status: true,
+      archived: true,
+      syncIgnored: true,
+    },
+  });
+  return rows.map((project) => ({
+    id: project.id,
+    name: project.name,
+    customer: project.customer,
+    tripletexProjectId: project.tripletexProjectId,
+    tripletexProjectNumber: project.tripletexProjectNumber,
+    startDate: dateToIso(project.startDate),
+    endDate: project.endDate ? dateToIso(project.endDate) : null,
+    status: project.status,
+    archived: project.archived,
+    syncIgnored: project.syncIgnored,
+  }));
+}
+
 export async function runTripletexSync(): Promise<SyncReport> {
   const config = readTripletexConfig();
   if (!config.configured) {
@@ -66,77 +90,62 @@ export async function runTripletexSync(): Promise<SyncReport> {
       ok: false,
       disabled: true,
       ...emptyCounts,
+      warnings: [],
       message: "Tripletex er ikke satt opp. Legg inn nøkkel i miljøvariablene.",
     };
   }
 
+  let api: Awaited<ReturnType<typeof createTripletexApi>>;
   try {
-    const api = await createTripletexApi(config);
-    if (!api) {
-      return {
-        ok: false,
-        disabled: true,
-        ...emptyCounts,
-        message: "Tripletex er ikke satt opp.",
-      };
-    }
+    api = await createTripletexApi(config);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Kunne ikke logge på Tripletex.";
+    await prisma.integrationState.upsert({
+      where: { id: "tripletex" },
+      create: { id: "tripletex", lastSyncAt: new Date(), lastSyncOk: false, lastSyncMessage: message },
+      update: { lastSyncAt: new Date(), lastSyncOk: false, lastSyncMessage: message },
+    });
+    return { ok: false, ...emptyCounts, warnings: [message], message };
+  }
+  if (!api) {
+    return {
+      ok: false,
+      disabled: true,
+      ...emptyCounts,
+      warnings: [],
+      message: "Tripletex er ikke satt opp.",
+    };
+  }
 
-    const today = todayIso();
-    const window = syncWindow(today);
-    const [remoteEmployees, remoteProjects, entries, localResources, localProjects] = await Promise.all([
-      api.employees(),
-      api.projects(),
-      api.entries(window.dateFrom, window.dateTo),
-      prisma.resource.findMany({ select: { id: true, name: true, tripletexEmployeeId: true } }),
-      prisma.project.findMany({
-        select: {
-          id: true,
-          name: true,
-          customer: true,
-          tripletexProjectId: true,
-          tripletexProjectNumber: true,
-          startDate: true,
-          endDate: true,
-          status: true,
-        },
-      }),
-    ]);
-    const employeePlan = planEmployeeImports(remoteEmployees, localResources);
-    const projectPlan = planProjectImports(
-      remoteProjects,
-      localProjects.map(
-        (project): LocalProject => ({
-          id: project.id,
-          name: project.name,
-          customer: project.customer,
-          tripletexProjectId: project.tripletexProjectId,
-          tripletexProjectNumber: project.tripletexProjectNumber,
-          startDate: dateToIso(project.startDate),
-          endDate: project.endDate ? dateToIso(project.endDate) : null,
-          status: project.status,
+  return runSyncPipeline({
+    today: todayIso(),
+    employees: () => api.employees(),
+    employments: () => api.employments(),
+    projects: () => api.projects(),
+    entries: (dateFrom, dateTo) => api.entries(dateFrom, dateTo),
+    weeks: (employeeIds, weekYear) => api.weeks(employeeIds, weekYear),
+    loadResources,
+    loadProjects,
+    applyEmployees: (changes) => applyEmployeeImports(changes),
+    applyProjects: (changes) => applyProjectImports(changes),
+    loadLinks: async () => {
+      const [resources, projects] = await Promise.all([
+        prisma.resource.findMany({ select: { id: true, tripletexEmployeeId: true } }),
+        prisma.project.findMany({
+          select: { id: true, tripletexProjectId: true, tripletexProjectNumber: true, syncIgnored: true },
         }),
-      ),
-      today,
-    );
-    const employees = await applyEmployeeImports(employeePlan);
-    const projectImport = await applyProjectImports(projectPlan);
-    const [resources, projects] = await Promise.all([
-      prisma.resource.findMany({ select: { id: true, tripletexEmployeeId: true } }),
-      prisma.project.findMany({
-        select: { id: true, tripletexProjectId: true, tripletexProjectNumber: true },
-      }),
-    ]);
-    const classified = classifyEntries(entries, linksFromRows(resources, projects));
-    const employeeIds = [...new Set(entries.map((entry) => entry.employeeId))];
-    const weeks = (
-      await Promise.all(weekYearsBetween(window.dateFrom, window.dateTo).map((weekYear) => api.weeks(employeeIds, weekYear)))
-    ).flat();
-    const incompleteWeeks = incompleteWeekCount(weeks);
-
-    let inserted = 0;
-    let updated = 0;
-    let unchanged = 0;
-    for (const entry of classified) {
+      ]);
+      return {
+        links: linksFromRows(
+          resources,
+          projects.filter((project) => !project.syncIgnored),
+        ),
+        ignoredProjectIds: projects
+          .filter((project) => project.syncIgnored && project.tripletexProjectId != null)
+          .map((project) => project.tripletexProjectId as number),
+      };
+    },
+    writeEntry: async (entry) => {
       const data = {
         date: isoToDate(entry.date),
         hours: entry.hours,
@@ -153,8 +162,7 @@ export async function runTripletexSync(): Promise<SyncReport> {
       const existing = await prisma.timeEntry.findUnique({ where: { externalId: entry.externalId } });
       if (!existing) {
         await prisma.timeEntry.create({ data: { ...data, externalId: entry.externalId } });
-        inserted += 1;
-        continue;
+        return "inserted";
       }
       const same =
         dateToIso(existing.date) === entry.date &&
@@ -163,55 +171,16 @@ export async function runTripletexSync(): Promise<SyncReport> {
         existing.resourceId === entry.resourceId &&
         existing.projectId === entry.projectId &&
         existing.unmappedReason === entry.unmappedReason;
-      if (same) {
-        unchanged += 1;
-        continue;
-      }
+      if (same) return "unchanged";
       await prisma.timeEntry.update({ where: { externalId: entry.externalId }, data });
-      updated += 1;
-    }
-
-    const unmapped = classified.filter((entry) => entry.unmappedReason).length;
-    const projectsSkipped = projectPlan.filter((change) => change.kind === "skip").length;
-    const message = [
-      `Hentet ${classified.length} timer.`,
-      `${inserted} nye, ${updated} oppdatert, ${unchanged} uendret.`,
-      unmapped > 0 ? `${unmapped} uten kobling.` : "Alle er koblet.",
-      `${projectImport.created} nye prosjekter, ${projectImport.updated} oppdatert.`,
-      projectsSkipped > 0 ? `${projectsSkipped} lukkede prosjekter hoppet over.` : "",
-      `${employees.linked} ansatte koblet, ${employees.created} nye ressurser.`,
-      incompleteWeeks > 0 ? `${incompleteWeeks} uker er ikke markert fullført i Tripletex.` : "",
-    ]
-      .filter(Boolean)
-      .join(" ");
-
-    await prisma.integrationState.upsert({
-      where: { id: "tripletex" },
-      create: { id: "tripletex", lastSyncAt: new Date(), lastSyncOk: true, lastSyncMessage: message },
-      update: { lastSyncAt: new Date(), lastSyncOk: true, lastSyncMessage: message },
-    });
-
-    return {
-      ok: true,
-      inserted,
-      updated,
-      unchanged,
-      unmapped,
-      incompleteWeeks,
-      projectsCreated: projectImport.created,
-      projectsUpdated: projectImport.updated,
-      projectsSkipped,
-      employeesLinked: employees.linked,
-      employeesCreated: employees.created,
-      message,
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Kunne ikke hente timer fra Tripletex.";
-    await prisma.integrationState.upsert({
-      where: { id: "tripletex" },
-      create: { id: "tripletex", lastSyncAt: new Date(), lastSyncOk: false, lastSyncMessage: message },
-      update: { lastSyncAt: new Date(), lastSyncOk: false, lastSyncMessage: message },
-    });
-    return { ok: false, ...emptyCounts, message };
-  }
+      return "updated";
+    },
+    saveState: async (ok, message) => {
+      await prisma.integrationState.upsert({
+        where: { id: "tripletex" },
+        create: { id: "tripletex", lastSyncAt: new Date(), lastSyncOk: ok, lastSyncMessage: message },
+        update: { lastSyncAt: new Date(), lastSyncOk: ok, lastSyncMessage: message },
+      });
+    },
+  });
 }

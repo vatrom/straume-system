@@ -12,12 +12,19 @@ export type LocalProject = {
   startDate: string;
   endDate: string | null;
   status: string;
+  archived?: boolean;
+  syncIgnored?: boolean;
 };
 
 export type LocalResource = {
   id: string;
   name: string;
   tripletexEmployeeId: number | null;
+  innleid?: boolean;
+  planExcluded?: boolean;
+  active?: boolean;
+  /** Allocations, absences or actual hours. Empty Tripletex imports can be removed. */
+  hasHistory?: boolean;
 };
 
 export type ProjectChange =
@@ -40,14 +47,18 @@ export type ProjectChange =
       number?: string;
       startDate?: string;
       endDate?: string;
-      status?: "ferdig";
+      status?: "ferdig" | "planlagt";
+      archived?: boolean;
     }
-  | { kind: "skip"; tripletexProjectId: number; reason: "closed" };
+  | { kind: "skip"; tripletexProjectId: number; reason: "closed" | "internal" | "ignored" };
 
 export type EmployeeChange =
-  | { kind: "link"; resourceId: string; tripletexEmployeeId: number }
+  | { kind: "link"; resourceId: string; tripletexEmployeeId: number; reactivate?: boolean }
   | { kind: "create"; tripletexEmployeeId: number; name: string }
-  | { kind: "skip"; tripletexEmployeeId: number; reason: "linked" | "possible-duplicate" };
+  | { kind: "reactivate"; resourceId: string; tripletexEmployeeId: number }
+  | { kind: "deactivate"; resourceId: string; tripletexEmployeeId: number }
+  | { kind: "remove"; resourceId: string; tripletexEmployeeId: number }
+  | { kind: "skip"; tripletexEmployeeId: number; reason: "linked" | "possible-duplicate" | "excluded" | "innleid" };
 
 function projectUpdate(local: LocalProject, item: TripletexProject): ProjectChange | null {
   const change: Extract<ProjectChange, { kind: "update" }> = {
@@ -62,7 +73,13 @@ function projectUpdate(local: LocalProject, item: TripletexProject): ProjectChan
   if (item.number && item.number !== local.tripletexProjectNumber) change.number = item.number;
   if (item.startDate && item.startDate !== local.startDate) change.startDate = item.startDate;
   if (item.endDate && item.endDate !== local.endDate) change.endDate = item.endDate;
-  if (item.closed && local.status !== "tentativ" && local.status !== "ferdig") change.status = "ferdig";
+  if (item.closed) {
+    if (!local.archived) change.archived = true;
+    if (local.status !== "tentativ" && local.status !== "ferdig") change.status = "ferdig";
+  } else if (local.archived) {
+    change.archived = false;
+    if (local.status === "ferdig") change.status = "planlagt";
+  }
   const linking = local.tripletexProjectId !== item.id;
   const changed =
     change.name !== undefined ||
@@ -70,7 +87,8 @@ function projectUpdate(local: LocalProject, item: TripletexProject): ProjectChan
     change.number !== undefined ||
     change.startDate !== undefined ||
     change.endDate !== undefined ||
-    change.status !== undefined;
+    change.status !== undefined ||
+    change.archived !== undefined;
   if (!linking && !changed) return null;
   return change;
 }
@@ -88,6 +106,10 @@ export function planProjectImports(
   const changes: ProjectChange[] = [];
   for (const item of remote) {
     const linked = byId.get(item.id);
+    if (linked?.syncIgnored) {
+      changes.push({ kind: "skip", tripletexProjectId: item.id, reason: "ignored" });
+      continue;
+    }
     if (linked) {
       used.add(linked.id);
       const change = projectUpdate(linked, item);
@@ -97,6 +119,7 @@ export function planProjectImports(
     const byNumber = item.number
       ? local.find(
           (project) =>
+            !project.syncIgnored &&
             !used.has(project.id) &&
             project.tripletexProjectId == null &&
             project.tripletexProjectNumber === item.number,
@@ -110,6 +133,10 @@ export function planProjectImports(
     }
     if (item.closed) {
       changes.push({ kind: "skip", tripletexProjectId: item.id, reason: "closed" });
+      continue;
+    }
+    if (item.internal) {
+      changes.push({ kind: "skip", tripletexProjectId: item.id, reason: "internal" });
       continue;
     }
     changes.push({
@@ -149,25 +176,75 @@ export function projectUpdateData(change: Extract<ProjectChange, { kind: "update
     ...(change.startDate !== undefined ? { startDate: change.startDate } : {}),
     ...(change.endDate !== undefined ? { endDate: change.endDate } : {}),
     ...(change.status !== undefined ? { status: change.status } : {}),
+    ...(change.archived !== undefined ? { archived: change.archived } : {}),
   };
 }
 
+function kept(resource: LocalResource): boolean {
+  return resource.innleid === true || resource.planExcluded === true;
+}
+
 export function planEmployeeImports(remote: TripletexEmployee[], local: LocalResource[]): EmployeeChange[] {
-  const taken = new Set(local.filter((resource) => resource.tripletexEmployeeId != null).map((resource) => resource.id));
+  const currentIds = new Set(remote.filter((employee) => !employee.isContact && employee.isProxy !== true).map((employee) => employee.id));
   const changes: EmployeeChange[] = [];
+
+  for (const resource of local) {
+    if (resource.tripletexEmployeeId == null || kept(resource)) continue;
+    if (currentIds.has(resource.tripletexEmployeeId)) {
+      if (resource.active === false) {
+        changes.push({
+          kind: "reactivate",
+          resourceId: resource.id,
+          tripletexEmployeeId: resource.tripletexEmployeeId,
+        });
+      }
+      continue;
+    }
+    if (resource.hasHistory === false) {
+      changes.push({ kind: "remove", resourceId: resource.id, tripletexEmployeeId: resource.tripletexEmployeeId });
+    } else if (resource.active !== false) {
+      changes.push({
+        kind: "deactivate",
+        resourceId: resource.id,
+        tripletexEmployeeId: resource.tripletexEmployeeId,
+      });
+    }
+  }
+
+  const taken = new Set(local.filter((resource) => resource.tripletexEmployeeId != null).map((resource) => resource.id));
   for (const employee of remote) {
-    if (employee.isContact) continue;
-    if (local.some((resource) => resource.tripletexEmployeeId === employee.id)) {
-      changes.push({ kind: "skip", tripletexEmployeeId: employee.id, reason: "linked" });
+    if (employee.isContact || employee.isProxy) continue;
+    const linked = local.find((resource) => resource.tripletexEmployeeId === employee.id);
+    if (linked) {
+      if (linked.planExcluded) {
+        changes.push({ kind: "skip", tripletexEmployeeId: employee.id, reason: "excluded" });
+      } else if (linked.innleid) {
+        changes.push({ kind: "skip", tripletexEmployeeId: employee.id, reason: "innleid" });
+      } else if (linked.active !== false) {
+        changes.push({ kind: "skip", tripletexEmployeeId: employee.id, reason: "linked" });
+      }
       continue;
     }
     const name = norm(`${employee.firstName} ${employee.lastName}`);
     const exact = name
-      ? local.find((resource) => !taken.has(resource.id) && norm(resource.name) === name)
+      ? local.find((resource) => !taken.has(resource.id) && resource.tripletexEmployeeId == null && norm(resource.name) === name)
       : undefined;
+    if (exact?.innleid) {
+      changes.push({ kind: "skip", tripletexEmployeeId: employee.id, reason: "innleid" });
+      continue;
+    }
+    if (exact?.planExcluded) {
+      changes.push({ kind: "skip", tripletexEmployeeId: employee.id, reason: "excluded" });
+      continue;
+    }
     if (exact) {
       taken.add(exact.id);
-      changes.push({ kind: "link", resourceId: exact.id, tripletexEmployeeId: employee.id });
+      changes.push({
+        kind: "link",
+        resourceId: exact.id,
+        tripletexEmployeeId: employee.id,
+        ...(exact.active === false ? { reactivate: true } : {}),
+      });
       continue;
     }
     const partial =
@@ -196,6 +273,9 @@ export function employeeCreateData(change: Extract<EmployeeChange, { kind: "crea
     name: change.name,
     role: "Ukjent",
     weeklyCapacityHours: 37.5,
+    active: true,
+    innleid: false,
+    planExcluded: false,
     tripletexEmployeeId: change.tripletexEmployeeId,
   };
 }

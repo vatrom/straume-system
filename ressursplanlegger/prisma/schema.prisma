@@ -36,6 +36,8 @@ model Resource {
   weeklyCapacityHours  Float             @default(37.5)
   active               Boolean           @default(true)
   isExample            Boolean           @default(false)
+  innleid              Boolean           @default(false)
+  planExcluded         Boolean           @default(false)
   tripletexEmployeeId  Int?
   createdAt            DateTime          @default(now())
   updatedAt            DateTime          @updatedAt
@@ -65,6 +67,8 @@ model Project {
   status                  String      @default("planlagt")
   color                   String      @default("#1f6b4a")
   isExample               Boolean     @default(false)
+  archived                Boolean     @default(false)
+  syncIgnored             Boolean     @default(false)
   tripletexProjectId      Int?
   tripletexProjectNumber  String      @default("")
   createdAt               DateTime    @default(now())

@@ -5,13 +5,16 @@ import { useRouter } from "next/navigation";
 import { movePersonBetweenProjects, shiftSchedule } from "@/lib/actions";
 import { formatNorwegian, formatShort, weekId, weekdayLabel, weekdayShort } from "@/lib/dates";
 import { LEVEL_LABEL, formatHours, formatPercent } from "@/lib/format";
-import { loadLevel, totalWeekCells, type DayCell, type GanttBar, type LoadLevel, type ProjectSlice, type WeekCell, type WeekRow } from "@/lib/planning";
+import { cellTone, loadLevel, totalWeekCells, type DayCell, type GanttBar, type LoadLevel, type ProjectSlice, type WeekCell, type WeekRow } from "@/lib/planning";
 
 type Person = {
   id: string;
   name: string;
   role: string;
+  innleid?: boolean;
 };
+
+type ResourceGroup = { label: string; resourceIds: string[]; innleid?: boolean };
 
 type Selection = {
   title: string;
@@ -40,7 +43,7 @@ export function CapacityBoard({
   directory: Person[];
   rows: WeekRow[];
   totals: WeekCell[];
-  groups: { label: string; resourceIds: string[] }[];
+  groups: ResourceGroup[];
   dayRows: { resourceId: string; days: DayCell[] }[];
   gantt: GanttBar[];
 }) {
@@ -114,7 +117,8 @@ export function CapacityBoard({
                 return (
                   <GroupRows
                     key={group.label}
-                    label={`Sum ${group.label.toLocaleLowerCase("nb")}`}
+                    label={group.innleid ? group.label : `Sum ${group.label.toLocaleLowerCase("nb")}`}
+                    innleid={group.innleid}
                     rows={groupRows}
                     totals={groupTotals}
                     names={names}
@@ -123,7 +127,8 @@ export function CapacityBoard({
                   />
                 );
               })}
-              {groups.length > 1 ? (
+              {groups.filter((group) => !group.innleid).length > 1 ||
+              (groups.some((group) => !group.innleid) && groups.some((group) => group.innleid)) ? (
               <tr className="total-row">
                 <th className="name-col">Hele firmaet</th>
                 {totals.map((cell, index) => (
@@ -138,7 +143,9 @@ export function CapacityBoard({
                           bookedHours: cell.bookedHours,
                           level: cell.level,
                           projects: cell.projects,
-                          people: rows.map((row) => ({
+                          people: rows
+                            .filter((row) => !names.get(row.resourceId)?.innleid)
+                            .map((row) => ({
                             name: names.get(row.resourceId)?.name ?? "",
                             bookedHours: row.cells[index].bookedHours,
                             capacityHours: row.cells[index].capacityHours,
@@ -299,6 +306,7 @@ export function CapacityBoard({
 
 function GroupRows({
   label,
+  innleid,
   rows,
   totals,
   names,
@@ -306,6 +314,7 @@ function GroupRows({
   onSelect,
 }: {
   label: string;
+  innleid?: boolean;
   rows: WeekRow[];
   totals: WeekCell[];
   names: Map<string, Person>;
@@ -314,10 +323,17 @@ function GroupRows({
 }) {
   return (
     <>
+      {innleid ? (
+        <tr className="group-banner">
+          <th className="name-col" colSpan={1 + (rows[0]?.cells.length ?? 0)}>
+            {label}
+          </th>
+        </tr>
+      ) : null}
       {rows.map((row) => {
         const person = names.get(row.resourceId);
         return (
-          <tr key={row.resourceId}>
+          <tr key={row.resourceId} className={person?.innleid ? "innleid-row" : undefined}>
             <th className="name-col">
               {person?.name}
               <div className="meta">{person?.role}</div>
@@ -326,6 +342,7 @@ function GroupRows({
               <td key={cell.id}>
                 <CellButton
                   cell={cell}
+                  innleid={person?.innleid}
                   onClick={() =>
                     onSelect({
                       title: person?.name ?? "Ressurs",
@@ -344,12 +361,13 @@ function GroupRows({
           </tr>
         );
       })}
-      <tr className="total-row">
-        <th className="name-col">{label}</th>
+      <tr className={innleid ? "total-row innleid-total" : "total-row"}>
+        <th className="name-col">{innleid ? `Sum ${label.toLocaleLowerCase("nb")}` : label}</th>
         {totals.map((cell, index) => (
           <td key={cell.id}>
             <CellButton
               cell={cell}
+              innleid={innleid}
               onClick={() =>
                 onSelect({
                   title: label,
@@ -526,15 +544,16 @@ function GanttTable({
   );
 }
 
-function CellButton({ cell, onClick }: { cell: WeekCell; onClick: () => void }) {
+function CellButton({ cell, innleid, onClick }: { cell: WeekCell; innleid?: boolean; onClick: () => void }) {
   const offLabel =
     cell.absenceDays >= 5 && cell.bookedHours < 0.05
       ? "Fravær"
       : cell.capacityHours < 0.05
         ? "–"
         : null;
+  const tone = cellTone(innleid, cell);
   return (
-    <button type="button" className={`cell-btn tone-${cell.level}${cell.tentativeHours > 0.05 ? " has-tentative" : ""}`} onClick={onClick}>
+    <button type="button" className={`cell-btn tone-${tone}${cell.tentativeHours > 0.05 ? " has-tentative" : ""}`} onClick={onClick}>
       {cell.hasOverloadedDay && cell.level !== "over" ? <i className="hot-dot" title="Minst én dag er overbelastet" /> : null}
       {offLabel && cell.bookedHours < 0.05 ? (
         <b>{offLabel}</b>
@@ -555,7 +574,7 @@ function DayTable({
   onSelect,
 }: {
   resources: Person[];
-  roleGroups: { label: string; resourceIds: string[] }[];
+  roleGroups: ResourceGroup[];
   dayRows: { resourceId: string; days: DayCell[] }[];
   onSelect: (selection: Selection) => void;
 }) {
@@ -572,11 +591,12 @@ function DayTable({
     }
   }
 
+  const firmRows = dayRows.filter((row) => !names.get(row.resourceId)?.innleid);
   const totals = days.map((day, index) => {
     let capacityHours = 0;
     let bookedHours = 0;
     const projects = new Map<string, ProjectSlice>();
-    for (const row of dayRows) {
+    for (const row of firmRows) {
       const cell = row.days[index];
       capacityHours += cell.capacityHours;
       bookedHours += cell.bookedHours;
@@ -634,14 +654,16 @@ function DayTable({
           return (
             <DayGroup
               key={group.label}
-              label={`Sum ${group.label.toLocaleLowerCase("nb")}`}
+              label={group.innleid ? group.label : `Sum ${group.label.toLocaleLowerCase("nb")}`}
+              innleid={group.innleid}
               rows={groupRows}
               names={names}
               onSelect={onSelect}
             />
           );
         })}
-        {roleGroups.length > 1 ? (
+        {roleGroups.filter((group) => !group.innleid).length > 1 ||
+        (roleGroups.some((group) => !group.innleid) && roleGroups.some((group) => group.innleid)) ? (
         <tr className="total-row">
           <th className="name-col">Hele firmaet</th>
           {totals.map((total, index) => (
@@ -657,7 +679,7 @@ function DayTable({
                     bookedHours: total.bookedHours,
                     level: total.level,
                     projects: total.projects,
-                    people: dayRows.map((row) => ({
+                    people: firmRows.map((row) => ({
                       name: names.get(row.resourceId)?.name ?? "",
                       bookedHours: row.days[index].bookedHours,
                       capacityHours: row.days[index].capacityHours,
@@ -686,11 +708,13 @@ function DayTable({
 
 function DayGroup({
   label,
+  innleid,
   rows,
   names,
   onSelect,
 }: {
   label: string;
+  innleid?: boolean;
   rows: { resourceId: string; days: DayCell[] }[];
   names: Map<string, Person>;
   onSelect: (selection: Selection) => void;
@@ -721,10 +745,17 @@ function DayGroup({
   });
   return (
     <>
+      {innleid ? (
+        <tr className="group-banner">
+          <th className="name-col" colSpan={1 + days.length}>
+            {label}
+          </th>
+        </tr>
+      ) : null}
       {rows.map((row) => {
         const person = names.get(row.resourceId);
         return (
-          <tr key={row.resourceId}>
+          <tr key={row.resourceId} className={person?.innleid ? "innleid-row" : undefined}>
             <th className="name-col">
               {person?.name}
               <div className="meta">{person?.role}</div>
@@ -733,7 +764,7 @@ function DayGroup({
               <td key={day.date}>
                 <button
                   type="button"
-                  className={`cell-btn tone-${day.level}${day.tentativeHours > 0.05 ? " has-tentative" : ""}`}
+                  className={`cell-btn tone-${cellTone(person?.innleid, day)}${day.tentativeHours > 0.05 ? " has-tentative" : ""}`}
                   onClick={() =>
                     onSelect({
                       title: person?.name ?? "Ressurs",
@@ -753,13 +784,13 @@ function DayGroup({
           </tr>
         );
       })}
-      <tr className="total-row">
-        <th className="name-col">{label}</th>
+      <tr className={innleid ? "total-row innleid-total" : "total-row"}>
+        <th className="name-col">{innleid ? `Sum ${label.toLocaleLowerCase("nb")}` : label}</th>
         {totals.map((total) => (
           <td key={total.date}>
             <button
               type="button"
-              className={`cell-btn tone-${total.level}`}
+              className={`cell-btn tone-${cellTone(innleid, total)}`}
               onClick={() =>
                 onSelect({
                   title: label,

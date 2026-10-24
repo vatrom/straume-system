@@ -55,7 +55,9 @@ Manuelt: **Hent timer fra Tripletex** under Timer.
 
 Samme jobb kjører `POST /api/tripletex/sync`. Innlogget bruker kan kalle den. Uten økt kreves `Authorization: Bearer` med `SYNC_SECRET` eller `TRIPLETEX_SYNC_SECRET`.
 
-Synken henter timer, oppretter manglende prosjekter og kobler eller oppretter ansatte. Bare GET mot Tripletex, pluss sesjon-POST. Lukkede prosjekter som ikke finnes i planleggeren, hoppes over. Koblede prosjekter får oppdatert navn, nummer, kunde og datoer. Timeverk, ressurser, prosent, faser, farge og tilbud overskrives ikke. Nye prosjekter uten timeverk eller folk vises som «Ny fra Tripletex – mangler timeverk/ressurser».
+Synken henter timer, oppretter manglende åpne prosjekter og kobler ansatte som har en ansettelse som gjelder i dag. Bare GET mot Tripletex, pluss sesjon-POST. Lukkede og interne prosjekter som ikke finnes i planleggeren, hoppes over. Koblede prosjekter som er lukket, arkiveres. Koblede ansatte uten aktiv ansettelse skjules, eller fjernes hvis de ikke har timer eller tildeling. Innleide, manuelle ressurser og «Ikke med i planleggingen» røres ikke. Feil i uke-status stopper ikke timeimporten. Svaret viser antall som faktisk ble lagret, pluss feilen. HTTP 502 betyr at et steg feilet. JSON-kroppen har likevel tallene. Skriptet skriver ut kroppen før det avslutter med feil.
+
+Koblede prosjekter får oppdatert navn, nummer, kunde og datoer. Timeverk, ressurser, prosent, faser, farge og tilbud overskrives ikke. Nye prosjekter uten timeverk eller folk vises som «Ny fra Tripletex – mangler timeverk/ressurser».
 
 Hver time:
 

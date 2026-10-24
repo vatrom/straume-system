@@ -37,5 +37,32 @@ export const tripletexFixture = {
       activity: { name: "Timer fastpris" },
     },
   ],
-  weeks: [{ employee: { id: 10 }, weekYear: "2026-43", completed: false }],
+  weeks: [{ employee: { id: 10 }, year: 2026, week: 43, completed: false }],
+};
+
+/** Shapes returned by Tripletex list endpoints, including WeekDTO year/week. */
+export const realisticTripletex = {
+  weekList: {
+    fullResultSize: 1,
+    from: 0,
+    count: 1000,
+    versionDigest: "ignored",
+    values: [{ id: 900, version: 1, employee: { id: 10 }, year: 2026, week: 43, completed: false }],
+  },
+  employmentList: {
+    fullResultSize: 2,
+    from: 0,
+    count: 1000,
+    values: [
+      { id: 1, employee: { id: 10 }, startDate: "2019-04-01", endDate: null, noEmploymentRelationship: false },
+      { id: 2, employee: { id: 12 }, startDate: "2015-01-01", endDate: "2024-05-31", noEmploymentRelationship: false },
+    ],
+  },
+  weekError: {
+    status: 400,
+    code: 4000,
+    message: "Validering feilet",
+    developerMessage: "Illegal field in fields filter: weekYear (WeekDTO)",
+    validationMessages: [{ field: "fields", message: "Illegal field in fields filter: weekYear" }],
+  },
 };

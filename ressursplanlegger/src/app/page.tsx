@@ -4,11 +4,17 @@ import { deleteExampleData } from "@/lib/actions";
 import { getCurrentUser } from "@/lib/auth";
 import { getDashboard } from "@/lib/data";
 import { LEVEL_LABEL, formatHours } from "@/lib/format";
+import { INNLEID_LABEL } from "@/lib/planning";
 import { TRIPLETEX_SETUP_LABEL } from "@/lib/tripletex/import";
 
-export default async function HomePage({ searchParams }: { searchParams: Promise<{ fag?: string }> }) {
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ fag?: string; personell?: string }>;
+}) {
   const params = await searchParams;
-  const [data, user] = await Promise.all([getDashboard(params.fag ?? ""), getCurrentUser()]);
+  const personell = params.personell === "innleid" ? "innleid" : "";
+  const [data, user] = await Promise.all([getDashboard(params.fag ?? "", personell), getCurrentUser()]);
   const freePeople = data.nextWeekPeople.filter((person) => person.level === "free").length;
 
   return (
@@ -78,7 +84,28 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
                 {role.role}: {formatHours(role.freeHours)} t ledig
               </Link>
             ))}
+            <Link className={data.personell === "innleid" ? "chip selected" : "chip"} href={data.personell === "innleid" ? "/" : "/?personell=innleid"}>
+              {INNLEID_LABEL}
+            </Link>
           </div>
+          {data.hiredPeople.length > 0 ? (
+            <section className="panel hired-panel" style={{ marginBottom: "0.9rem" }}>
+              <h2>{INNLEID_LABEL}</h2>
+              <p className="meta">Mulig å sette inn. Timene deres telles ikke som ledig kapasitet i firmaet.</p>
+              {data.hiredPeople.map((person) => (
+                <div className="person" key={person.id}>
+                  <div>
+                    <strong>{person.name}</strong>
+                    <div className="meta">{person.role}</div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <span className="pill innleid">{INNLEID_LABEL}</span>
+                    <div className="meta">Planlagt {formatHours(person.bookedHours)} t neste uke</div>
+                  </div>
+                </div>
+              ))}
+            </section>
+          ) : null}
           <section className="stat-grid">
             <Link className="card stat-card" href="/kapasitet">
               <span>Ledige timer neste 4 uker</span>

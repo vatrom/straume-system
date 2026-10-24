@@ -2,13 +2,22 @@ import Link from "next/link";
 import { CapacityBoard } from "@/components/capacity-board";
 import { getCapacityView } from "@/lib/data";
 import { addDays, formatNorwegian } from "@/lib/dates";
+import { INNLEID_LABEL } from "@/lib/planning";
 
-function href(options: { mode?: "uke" | "dag"; fra?: string; antall?: number; fag?: string; tilbud?: boolean }) {
+function href(options: {
+  mode?: "uke" | "dag";
+  fra?: string;
+  antall?: number;
+  fag?: string;
+  tilbud?: boolean;
+  personell?: "" | "innleid";
+}) {
   const params = new URLSearchParams();
   if (options.mode === "dag") params.set("visning", "dag");
   if (options.fra) params.set("fra", options.fra);
   if (options.antall && options.antall !== 16) params.set("antall", String(options.antall));
   if (options.fag) params.set("fag", options.fag);
+  if (options.personell === "innleid") params.set("personell", "innleid");
   if (options.tilbud === false) params.set("tilbud", "av");
   const query = params.toString();
   return query ? `/kapasitet?${query}` : "/kapasitet";
@@ -17,13 +26,13 @@ function href(options: { mode?: "uke" | "dag"; fra?: string; antall?: number; fa
 export default async function KapasitetPage({
   searchParams,
 }: {
-  searchParams: Promise<{ visning?: string; fra?: string; antall?: string; fag?: string; tilbud?: string }>;
+  searchParams: Promise<{ visning?: string; fra?: string; antall?: string; fag?: string; tilbud?: string; personell?: string }>;
 }) {
   const params = await searchParams;
   const view = await getCapacityView(params);
   const shift = view.mode === "dag" ? 7 : 28;
   const counts = [12, 16, 26] as const;
-  const filter = { fag: view.fag, tilbud: view.showTentative };
+  const filter = { fag: view.fag, tilbud: view.showTentative, personell: view.personell };
 
   return (
     <>
@@ -66,13 +75,13 @@ export default async function KapasitetPage({
               </Link>
             ))
           : null}
-        <Link className="btn-secondary" href={href({ mode: view.mode, fra: view.from, antall: view.weekCount, fag: view.fag, tilbud: !view.showTentative })}>
+        <Link className="btn-secondary" href={href({ mode: view.mode, fra: view.from, antall: view.weekCount, fag: view.fag, personell: view.personell, tilbud: !view.showTentative })}>
           {view.showTentative ? "Skjul tilbud" : "Vis tilbud"}
         </Link>
       </div>
 
       <div className="chips" style={{ marginBottom: "0.8rem" }}>
-        <Link className={!view.fag ? "chip selected" : "chip"} href={href({ mode: view.mode, fra: view.from, antall: view.weekCount, tilbud: view.showTentative })}>
+        <Link className={!view.fag && !view.personell ? "chip selected" : "chip"} href={href({ mode: view.mode, fra: view.from, antall: view.weekCount, tilbud: view.showTentative })}>
           Alle fag
         </Link>
         {view.roleNames.map((role) => (
@@ -84,6 +93,18 @@ export default async function KapasitetPage({
             {role}
           </Link>
         ))}
+        <Link
+          className={view.personell === "innleid" ? "chip selected" : "chip"}
+          href={href({
+            mode: view.mode,
+            fra: view.from,
+            antall: view.weekCount,
+            tilbud: view.showTentative,
+            personell: view.personell === "innleid" ? "" : "innleid",
+          })}
+        >
+          {INNLEID_LABEL}
+        </Link>
       </div>
 
       <div className="legend">
@@ -98,6 +119,9 @@ export default async function KapasitetPage({
         </span>
         <span>
           <i className="off" /> Fravær eller helligdag
+        </span>
+        <span>
+          <i className="possible" /> {INNLEID_LABEL}
         </span>
         <span>
           {formatNorwegian(view.from)}–{formatNorwegian(view.to)}
@@ -139,11 +163,13 @@ export default async function KapasitetPage({
           id: resource.id,
           name: resource.name,
           role: resource.role,
+          innleid: Boolean(resource.innleid),
         }))}
         directory={view.everyone.map((resource) => ({
           id: resource.id,
           name: resource.name,
           role: resource.role,
+          innleid: Boolean(resource.innleid),
         }))}
         groups={view.groups}
         rows={view.rows}

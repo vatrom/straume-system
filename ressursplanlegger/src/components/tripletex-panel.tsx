@@ -97,9 +97,9 @@ export function TripletexPanel({
         </div>
         {note ? <p className="hint">{note}</p> : null}
         <p className="hint">
-          Synken oppretter også nye prosjekter og ansatte. Lukkede prosjekter som aldri er importert, hoppes over.
-          Timeverk, ressurser, faser, farge og tilbud endres ikke. Planlagt jobb kan kalle POST /api/tripletex/sync med
-          SYNC_SECRET.
+          Synken tar med ansatte som har en ansettelse i dag, og åpne prosjekter. Lukkede og interne prosjekter som ikke
+          finnes fra før, hoppes over. En feil i uke-status stopper ikke timeimporten. Timeverk, ressurser, faser, farge,
+          tilbud og innleid-valg endres ikke. Planlagt jobb kan kalle POST /api/tripletex/sync med SYNC_SECRET.
         </p>
       </section>
 

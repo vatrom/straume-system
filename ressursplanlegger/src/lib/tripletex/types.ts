@@ -14,6 +14,16 @@ export type TripletexEmployee = {
   firstName: string;
   lastName: string;
   isContact: boolean;
+  isProxy?: boolean;
+  /** Read from Tripletex. Employment overlap decides who is imported, not this flag. */
+  allowInformationRegistration?: boolean | null;
+};
+
+export type TripletexEmployment = {
+  employeeId: number;
+  startDate: string | null;
+  endDate: string | null;
+  noEmploymentRelationship: boolean;
 };
 
 export type TripletexProject = {
@@ -24,6 +34,7 @@ export type TripletexProject = {
   startDate: string | null;
   endDate: string | null;
   closed: boolean;
+  internal?: boolean;
 };
 
 export type TripletexEntry = {
@@ -41,7 +52,10 @@ export type TripletexEntry = {
 
 export type TripletexWeek = {
   employeeId: number;
+  /** Rebuilt from WeekDTO `year` and `week`. The DTO has no weekYear field. */
   weekYear: string;
+  year: number | null;
+  week: number | null;
   completed: boolean;
 };
 

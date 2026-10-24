@@ -22,10 +22,33 @@ export type ResourceInput = {
   role: string;
   weeklyCapacityHours: number;
   active: boolean;
+  /** Hired-in. Their spare time is not firm free capacity. */
+  innleid?: boolean;
   absences: AbsenceInput[];
 };
 
+export const INNLEID_LABEL = "Innleid personell";
+
+export function firmResources<T extends { innleid?: boolean }>(resources: T[]): T[] {
+  return resources.filter((resource) => !resource.innleid);
+}
+
+/** Empty hired-in time is a possibility, not green free capacity. Load still uses the normal colours. */
+export function cellTone(
+  innleid: boolean | undefined,
+  cell: { level: LoadLevel; bookedHours: number },
+): LoadLevel | "possible" {
+  if (!innleid) return cell.level;
+  if (cell.level === "over" || cell.level === "tight" || cell.level === "off") return cell.level;
+  if (cell.bookedHours > 0.05) return cell.level;
+  return "possible";
+}
+
 export type ProjectStatus = "planlagt" | "pågår" | "ferdig" | "tentativ";
+
+export function isHiddenProject(project: { archived?: boolean; syncIgnored?: boolean }): boolean {
+  return project.archived === true || project.syncIgnored === true;
+}
 
 export type AssignmentInput = {
   resourceId: string;
@@ -54,6 +77,8 @@ export type ProjectInput = {
   phases?: PhaseInput[];
   parentId?: string;
   phaseName?: string;
+  archived?: boolean;
+  syncIgnored?: boolean;
 };
 
 export type ProjectSlice = {
@@ -231,7 +256,7 @@ export function scheduleProject(
     bookings,
   };
 
-  if (project.status === "ferdig" || project.estimatedHours <= HOURS_EPSILON) {
+  if (isHiddenProject(project) || project.status === "ferdig" || project.estimatedHours <= HOURS_EPSILON) {
     return { schedule, warnings };
   }
 
@@ -757,7 +782,7 @@ export function suggestReplacements(
       })
       .map(({ index }) => index) ?? [];
     const candidates = resources
-      .filter((resource) => resource.active && resource.id !== person.id && resource.role === person.role)
+      .filter((resource) => resource.active && !resource.innleid && resource.id !== person.id && resource.role === person.role)
       .map((resource) => {
         const row = rows.find((item) => item.resourceId === resource.id);
         const freeHours = indexes.reduce((sum, index) => {
@@ -810,7 +835,7 @@ export function ganttBars(
   if (weeks.length === 0) return [];
   const bars: GanttBar[] = [];
   for (const project of expandProjects(projects)) {
-    if (project.status === "ferdig") continue;
+    if (project.status === "ferdig" || isHiddenProject(project)) continue;
     const schedule = schedules.get(project.id);
     if (!schedule) continue;
     const finish = project.endDate ?? schedule.finishDate ?? null;

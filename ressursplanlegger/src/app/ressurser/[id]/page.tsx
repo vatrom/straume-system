@@ -4,6 +4,7 @@ import { AbsenceForm } from "@/components/absence-form";
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import { ResourceForm } from "@/components/resource-form";
 import { deleteAbsence, deleteResource } from "@/lib/actions";
+import { INNLEID_LABEL } from "@/lib/planning";
 import { prisma } from "@/lib/db";
 import { dateToIso, formatNorwegian } from "@/lib/dates";
 
@@ -25,13 +26,19 @@ export default async function EndreRessursPage({ params }: { params: Promise<{ i
           <h1>{resource.name}</h1>
           <p className="lede">
             {resource.role}
+            {resource.innleid ? ` · ${INNLEID_LABEL}` : ""}
             {resource.isExample ? " · eksempeldata" : ""}
+            {resource.tripletexEmployeeId != null ? " · Tripletex" : ""}
           </p>
         </div>
         <form action={deleteResource.bind(null, resource.id)}>
           <ConfirmSubmit
-            label="Slett ressurs"
-            confirm={`Slette ${resource.name}? Personen fjernes også fra prosjekter.`}
+            label={resource.tripletexEmployeeId != null ? "Skjul fra planleggingen" : "Slett ressurs"}
+            confirm={
+              resource.tripletexEmployeeId != null
+                ? `Skjule ${resource.name} fra planleggingen? Personen blir ikke hentet inn på nytt fra Tripletex.`
+                : `Slette ${resource.name}? Personen fjernes også fra prosjekter.`
+            }
           />
         </form>
       </header>
@@ -43,6 +50,8 @@ export default async function EndreRessursPage({ params }: { params: Promise<{ i
           role: resource.role,
           weeklyCapacityHours: resource.weeklyCapacityHours,
           active: resource.active,
+          innleid: resource.innleid,
+          planExcluded: resource.planExcluded,
         }}
       />
 

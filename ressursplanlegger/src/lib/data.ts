@@ -4,7 +4,10 @@ import { dateToIso, todayIso, addDays, mondayOf, sundayOf, formatShort, isoWeek 
 import { holidaysBetween } from "./holidays";
 import {
   buildPlan,
+  firmResources,
+  isHiddenProject,
   ganttBars,
+  INNLEID_LABEL,
   loadLevel,
   overloadSpans,
   previewAssignment,
@@ -46,6 +49,7 @@ export async function loadInputs() {
     role: resource.role,
     weeklyCapacityHours: resource.weeklyCapacityHours,
     active: resource.active,
+    innleid: resource.innleid,
     absences: resource.absences.map((absence) => ({
       startDate: dateToIso(absence.startDate),
       endDate: dateToIso(absence.endDate),
@@ -77,6 +81,8 @@ export async function loadInputs() {
         allocationPercent: assignment.allocationPercent,
       })),
     })),
+    archived: project.archived,
+    syncIgnored: project.syncIgnored,
   }));
 
   return { resources, projects, resourceInputs, projectInputs };
@@ -110,10 +116,18 @@ export type DashboardData = {
     level: ReturnType<typeof loadLevel>;
     note: string | null;
   }[];
+  hiredPeople: {
+    id: string;
+    name: string;
+    role: string;
+    bookedHours: number;
+    capacityHours: number;
+  }[];
+  personell: "" | "innleid";
   newFromTripletex: { id: string; name: string }[];
 };
 
-export async function getDashboard(fag = ""): Promise<DashboardData> {
+export async function getDashboard(fag = "", personell: "" | "innleid" = ""): Promise<DashboardData> {
   const { resources, projects, resourceInputs, projectInputs } = await loadInputs();
   const today = todayIso();
   const thisMonday = mondayOf(today);
@@ -121,15 +135,22 @@ export async function getDashboard(fag = ""): Promise<DashboardData> {
   const fourWeekEnd = addDays(thisMonday, 4 * 7 - 1);
   const nextMonday = addDays(thisMonday, 7);
   const nextSunday = addDays(nextMonday, 6);
-  const plan = buildPlan(resourceInputs, projectInputs, thisMonday, horizonEnd);
+  const plan = buildPlan(
+    resourceInputs,
+    projectInputs.filter((project) => !isHiddenProject(project)),
+    thisMonday,
+    horizonEnd,
+  );
   const active = resourceInputs.filter((resource) => resource.active);
-  const visible = fag ? active.filter((resource) => resource.role === fag) : active;
+  const staff = firmResources(active);
+  const visibleStaff = fag ? staff.filter((resource) => resource.role === fag) : staff;
+  const visibleHired = active.filter((resource) => resource.innleid && (!fag || resource.role === fag));
 
-  const roleNames = [...new Set(active.map((resource) => resource.role))].sort((a, b) => a.localeCompare(b, "nb"));
+  const roleNames = [...new Set(staff.map((resource) => resource.role))].sort((a, b) => a.localeCompare(b, "nb"));
   const roles = roleNames.map((role) => {
     let roleFree = 0;
     let roleCapacity = 0;
-    for (const resource of active.filter((item) => item.role === role)) {
+    for (const resource of staff.filter((item) => item.role === role)) {
       const cells = [...(plan.byResource.get(resource.id)?.values() ?? [])].filter(
         (cell) => cell.date >= today && cell.date <= fourWeekEnd,
       );
@@ -142,7 +163,7 @@ export async function getDashboard(fag = ""): Promise<DashboardData> {
 
   let freeHours = 0;
   let capacityHours = 0;
-  for (const resource of visible) {
+  for (const resource of visibleStaff) {
     const cells = [...(plan.byResource.get(resource.id)?.values() ?? [])].filter(
       (cell) => cell.date >= today && cell.date <= fourWeekEnd,
     );
@@ -151,14 +172,14 @@ export async function getDashboard(fag = ""): Promise<DashboardData> {
     capacityHours += sums.capacityHours;
   }
 
-  const rows = weekRows(plan, visible, thisMonday, horizonEnd);
-  const spans = overloadSpans(rows, visible);
+  const rows = weekRows(plan, visibleStaff, thisMonday, horizonEnd);
+  const spans = overloadSpans(rows, visibleStaff);
   const overloadWeeks: DashboardData["overloadWeeks"] = [];
   if (rows[0]) {
     rows[0].cells.forEach((cell, index) => {
       const names = rows
         .filter((row) => row.cells[index].level === "over")
-        .map((row) => active.find((resource) => resource.id === row.resourceId)?.name ?? "")
+        .map((row) => staff.find((resource) => resource.id === row.resourceId)?.name ?? "")
         .filter(Boolean);
       if (names.length === 0) return;
       overloadWeeks.push({
@@ -171,7 +192,7 @@ export async function getDashboard(fag = ""): Promise<DashboardData> {
     });
   }
 
-  const nextWeekPeople = visible
+  const nextWeekPeople = visibleStaff
     .map((resource) => {
       const cells = [...(plan.byResource.get(resource.id)?.values() ?? [])].filter(
         (cell) => cell.date >= nextMonday && cell.date <= nextSunday,
@@ -192,10 +213,26 @@ export async function getDashboard(fag = ""): Promise<DashboardData> {
     })
     .sort((a, b) => b.freeHours - a.freeHours || a.name.localeCompare(b.name, "nb"));
 
+  const hiredPeople = visibleHired
+    .map((resource) => {
+      const cells = [...(plan.byResource.get(resource.id)?.values() ?? [])].filter(
+        (cell) => cell.date >= nextMonday && cell.date <= nextSunday,
+      );
+      const sums = sumCells(cells);
+      return {
+        id: resource.id,
+        name: resource.name,
+        role: resource.role,
+        bookedHours: sums.bookedHours,
+        capacityHours: sums.capacityHours,
+      };
+    })
+    .sort((a, b) => b.bookedHours - a.bookedHours || a.name.localeCompare(b.name, "nb"));
+
   return {
     today,
-    activeResources: active.length,
-    activeProjects: projectInputs.filter((project) => project.status !== "ferdig").length,
+    activeResources: staff.length,
+    activeProjects: projectInputs.filter((project) => !isHiddenProject(project) && project.status !== "ferdig").length,
     exampleCount:
       resources.filter((resource) => resource.isExample).length +
       projects.filter((project) => project.isExample).length,
@@ -207,7 +244,10 @@ export async function getDashboard(fag = ""): Promise<DashboardData> {
     fag,
     nextWeekLabel: `Uke ${isoWeek(nextMonday).week} · ${formatShort(nextMonday)}–${formatShort(nextSunday)}`,
     nextWeekPeople,
+    hiredPeople,
+    personell,
     newFromTripletex: projects
+      .filter((project) => !project.archived && !project.syncIgnored)
       .filter((project) =>
         needsTripletexSetup({
           tripletexProjectId: project.tripletexProjectId,
@@ -245,8 +285,9 @@ export type CapacityView = {
   holidays: { date: string; name: string }[];
   fag: string;
   showTentative: boolean;
+  personell: "" | "innleid";
   roleNames: string[];
-  groups: { label: string; resourceIds: string[] }[];
+  groups: { label: string; resourceIds: string[]; innleid?: boolean }[];
   everyone: ResourceInput[];
 };
 
@@ -256,6 +297,7 @@ export async function getCapacityView(search: {
   antall?: string;
   fag?: string;
   tilbud?: string;
+  personell?: string;
 }): Promise<CapacityView> {
   const { resourceInputs, projectInputs } = await loadInputs();
   const today = todayIso();
@@ -266,19 +308,30 @@ export async function getCapacityView(search: {
   const span = mode === "dag" ? 4 : weekCount;
   const to = sundayOf(addDays(from, (span - 1) * 7));
   const showTentative = search.tilbud !== "av";
+  const personell = search.personell === "innleid" ? "innleid" : "";
   const active = resourceInputs.filter((resource) => resource.active);
-  const roleNames = [...new Set(active.map((resource) => resource.role))].sort((a, b) => a.localeCompare(b, "nb"));
+  const roleNames = [...new Set(firmResources(active).map((resource) => resource.role))].sort((a, b) =>
+    a.localeCompare(b, "nb"),
+  );
   const fag = search.fag && roleNames.includes(search.fag) ? search.fag : "";
-  const visible = fag ? active.filter((resource) => resource.role === fag) : active;
-  const plan = buildPlan(active, projectInputs, from, to, { includeTentative: showTentative });
+  const roleFiltered = fag ? active.filter((resource) => resource.role === fag) : active;
+  const visible = personell === "innleid" ? roleFiltered.filter((resource) => resource.innleid) : roleFiltered;
+  const own = firmResources(visible);
+  const hired = visible.filter((resource) => resource.innleid);
+  const planningProjects = projectInputs.filter((project) => !isHiddenProject(project));
+  const plan = buildPlan(active, planningProjects, from, to, { includeTentative: showTentative });
   const rows = weekRows(plan, visible, from, to);
   const grouped = new Map<string, string[]>();
-  for (const resource of visible) {
+  for (const resource of own) {
     const list = grouped.get(resource.role) ?? [];
     list.push(resource.id);
     grouped.set(resource.role, list);
   }
-  const groups = [...grouped.entries()].map(([label, resourceIds]) => ({ label, resourceIds }));
+  const groups: CapacityView["groups"] = [...grouped.entries()].map(([label, resourceIds]) => ({ label, resourceIds }));
+  if (hired.length > 0) {
+    groups.push({ label: INNLEID_LABEL, resourceIds: hired.map((resource) => resource.id), innleid: true });
+  }
+  const ownIds = new Set(own.map((resource) => resource.id));
   const dayColumns: DayCell[] = [];
   const first = visible[0] ?? active[0];
   if (first) {
@@ -313,13 +366,13 @@ export async function getCapacityView(search: {
     to,
     today,
     resources: visible,
-    projects: projectInputs,
+    projects: planningProjects,
     rows,
-    totals: totalWeekCells(rows),
+    totals: totalWeekCells(rows.filter((row) => ownIds.has(row.resourceId))),
     dayRows,
     dayColumns,
     gantt: ganttBars(
-      showTentative ? projectInputs : projectInputs.filter((project) => project.status !== "tentativ"),
+      showTentative ? planningProjects : planningProjects.filter((project) => project.status !== "tentativ"),
       plan.schedules,
       from,
       to,
@@ -327,6 +380,7 @@ export async function getCapacityView(search: {
     warnings: plan.warnings,
     fag,
     showTentative,
+    personell,
     roleNames,
     groups,
     everyone: active,

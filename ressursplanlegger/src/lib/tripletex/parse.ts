@@ -1,4 +1,10 @@
-import type { TripletexEmployee, TripletexEntry, TripletexProject, TripletexWeek } from "./types";
+import type {
+  TripletexEmployee,
+  TripletexEmployment,
+  TripletexEntry,
+  TripletexProject,
+  TripletexWeek,
+} from "./types";
 
 function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
@@ -54,11 +60,27 @@ export function normalizeEmployee(raw: unknown): TripletexEmployee | null {
     firstName: text(row.firstName),
     lastName: text(row.lastName),
     isContact: row.isContact === true,
+    isProxy: row.isProxy === true,
+    allowInformationRegistration:
+      typeof row.allowInformationRegistration === "boolean" ? row.allowInformationRegistration : null,
   };
 }
 
 export function staffEmployees(rows: TripletexEmployee[]): TripletexEmployee[] {
-  return rows.filter((row) => !row.isContact);
+  return rows.filter((row) => !row.isContact && row.isProxy !== true);
+}
+
+export function normalizeEmployment(raw: unknown): TripletexEmployment | null {
+  const row = record(raw);
+  if (!row) return null;
+  const employeeId = nestedId(row.employee) ?? num(row.employeeId);
+  if (employeeId == null) return null;
+  return {
+    employeeId,
+    startDate: isoDay(row.startDate),
+    endDate: isoDay(row.endDate),
+    noEmploymentRelationship: row.noEmploymentRelationship === true,
+  };
 }
 
 function isoDay(value: unknown): string | null {
@@ -87,6 +109,7 @@ export function normalizeProject(raw: unknown): TripletexProject | null {
     startDate: isoDay(row.startDate),
     endDate: isoDay(row.endDate),
     closed: row.isClosed === true || row.closed === true,
+    internal: row.isInternal === true,
   };
 }
 
@@ -122,9 +145,15 @@ export function normalizeWeek(raw: unknown): TripletexWeek | null {
   if (!row) return null;
   const employeeId = nestedId(row.employee) ?? num(row.employeeId);
   if (employeeId == null) return null;
+  const year = num(row.year);
+  const week = num(row.week);
+  const weekYear =
+    year != null && week != null ? `${year}-${week}` : text(row.weekYear);
   return {
     employeeId,
-    weekYear: text(row.weekYear),
+    weekYear,
+    year,
+    week,
     completed: row.completed === true,
   };
 }

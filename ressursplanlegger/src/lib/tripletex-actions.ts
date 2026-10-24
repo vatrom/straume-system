@@ -7,7 +7,8 @@ import { dateToIso, todayIso } from "./dates";
 import { applyEmployeeImports, applyProjectImports } from "./tripletex/apply";
 import { createTripletexApi } from "./tripletex/client";
 import { readTripletexConfig } from "./tripletex/config";
-import { planEmployeeImports, planProjectImports, type LocalProject } from "./tripletex/import";
+import { employmentWindow, selectCurrentEmployees } from "./tripletex/employment";
+import { planEmployeeImports, planProjectImports, type LocalProject, type LocalResource } from "./tripletex/import";
 import { runTripletexSync, type SyncReport } from "./tripletex/run";
 
 function refresh() {
@@ -69,16 +70,40 @@ export async function importTripletexCatalog(kind: "ansatte" | "prosjekter") {
     const api = await createTripletexApi(config);
     if (!api) return { error: "Tripletex er ikke satt opp." };
     if (kind === "ansatte") {
-      const employees = await api.employees();
+      const [employees, jobs] = await Promise.all([api.employees(), api.employments()]);
+      const period = employmentWindow(todayIso());
+      const current = selectCurrentEmployees(employees, jobs, period.from, period.to);
       const resources = await prisma.resource.findMany({
-        select: { id: true, name: true, tripletexEmployeeId: true },
+        select: {
+          id: true,
+          name: true,
+          tripletexEmployeeId: true,
+          innleid: true,
+          planExcluded: true,
+          active: true,
+          _count: { select: { assignments: true, phaseAssignments: true, timeEntries: true, absences: true } },
+        },
       });
-      const plan = planEmployeeImports(employees, resources);
+      const local: LocalResource[] = resources.map((resource) => ({
+        id: resource.id,
+        name: resource.name,
+        tripletexEmployeeId: resource.tripletexEmployeeId,
+        innleid: resource.innleid,
+        planExcluded: resource.planExcluded,
+        active: resource.active,
+        hasHistory:
+          resource._count.assignments +
+            resource._count.phaseAssignments +
+            resource._count.timeEntries +
+            resource._count.absences >
+          0,
+      }));
+      const plan = planEmployeeImports(current, local);
       const result = await applyEmployeeImports(plan);
       const skipped = plan.filter((change) => change.kind === "skip" && change.reason === "possible-duplicate").length;
       refresh();
       return {
-        ok: `Koblet ${result.linked} og la inn ${result.created} ressurser.${skipped ? ` ${skipped} mulige dubletter ble ikke opprettet.` : ""} Fag er ikke hentet fra aktiviteten.`,
+        ok: `Koblet ${result.linked} og la inn ${result.created} ressurser. ${result.removed} uten ansettelse fjernet, ${result.deactivated} skjult.${skipped ? ` ${skipped} mulige dubletter ble ikke opprettet.` : ""} Fag er ikke hentet fra aktiviteten.`,
       };
     }
     const remote = await api.projects();
@@ -92,6 +117,8 @@ export async function importTripletexCatalog(kind: "ansatte" | "prosjekter") {
         startDate: true,
         endDate: true,
         status: true,
+        archived: true,
+        syncIgnored: true,
       },
     });
     const local: LocalProject[] = projects.map((project) => ({
@@ -103,13 +130,15 @@ export async function importTripletexCatalog(kind: "ansatte" | "prosjekter") {
       startDate: dateToIso(project.startDate),
       endDate: project.endDate ? dateToIso(project.endDate) : null,
       status: project.status,
+      archived: project.archived,
+      syncIgnored: project.syncIgnored,
     }));
     const plan = planProjectImports(remote, local, todayIso());
     const result = await applyProjectImports(plan);
     const skipped = plan.filter((change) => change.kind === "skip").length;
     refresh();
     return {
-      ok: `La inn ${result.created} prosjekter og oppdaterte ${result.updated}.${skipped ? ` ${skipped} lukkede ble hoppet over.` : ""} Fyll inn timer og ressurser før de belaster planen.`,
+      ok: `La inn ${result.created} prosjekter og oppdaterte ${result.updated}.${result.archived ? ` ${result.archived} arkivert.` : ""}${skipped ? ` ${skipped} hoppet over.` : ""} Fyll inn timer og ressurser før de belaster planen.`,
     };
   } catch (error) {
     return { error: error instanceof Error ? error.message : "Kunne ikke hente fra Tripletex." };

@@ -13,6 +13,8 @@ export function ResourceForm({
     role: string;
     weeklyCapacityHours: number;
     active: boolean;
+    innleid?: boolean;
+    planExcluded?: boolean;
   };
 }) {
   const action = resource ? updateResource.bind(null, resource.id) : createResource;
@@ -53,8 +55,20 @@ export function ResourceForm({
         </label>
         <label className="check">
           <input type="hidden" name="active" value="false" />
-          <input type="checkbox" name="active" value="true" defaultChecked={resource?.active ?? true} />
+          <input type="checkbox" name="active" value="true" defaultChecked={resource ? resource.active : true} />
           Aktiv og med i kapasitetsoversikten
+        </label>
+        <label className="check">
+          <input type="hidden" name="innleid" value="false" />
+          <input type="checkbox" name="innleid" value="true" defaultChecked={resource?.innleid ?? false} />
+          Innleid personell
+          <span className="hint">Telles ikke som ledig kapasitet i firmaet. Synken endrer ikke dette valget.</span>
+        </label>
+        <label className="check">
+          <input type="hidden" name="planExcluded" value="false" />
+          <input type="checkbox" name="planExcluded" value="true" defaultChecked={resource?.planExcluded ?? false} />
+          Ikke med i planleggingen
+          <span className="hint">Skjules fra kapasitet. Tripletex henter ikke personen inn på nytt.</span>
         </label>
       </div>
       <div className="actions">

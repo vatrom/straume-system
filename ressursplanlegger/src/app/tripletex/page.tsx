@@ -1,9 +1,10 @@
 import { TripletexPanel } from "@/components/tripletex-panel";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { dateToIso } from "@/lib/dates";
+import { dateToIso, todayIso } from "@/lib/dates";
 import { readTripletexConfig } from "@/lib/tripletex/config";
 import { createTripletexApi } from "@/lib/tripletex/client";
+import { employmentWindow, selectCurrentEmployees } from "@/lib/tripletex/employment";
 import { bestEmployeeMatch, bestProjectMatch } from "@/lib/tripletex/match";
 
 export default async function TripletexPage() {
@@ -27,8 +28,14 @@ export default async function TripletexPage() {
     try {
       const api = await createTripletexApi(config);
       if (api) {
-        employees = await api.employees();
-        remoteProjects = await api.projects();
+        const [staff, jobs, projectsFromTripletex] = await Promise.all([
+          api.employees(),
+          api.employments(),
+          api.projects(),
+        ]);
+        const period = employmentWindow(todayIso());
+        employees = selectCurrentEmployees(staff, jobs, period.from, period.to);
+        remoteProjects = projectsFromTripletex.filter((project) => !project.closed && !project.internal);
       }
     } catch (error) {
       catalogError = error instanceof Error ? error.message : "Kunne ikke lese katalogen fra Tripletex.";

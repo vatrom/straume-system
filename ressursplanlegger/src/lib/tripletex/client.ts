@@ -1,6 +1,7 @@
 import { readTripletexConfig } from "./config";
 import {
   normalizeEmployee,
+  normalizeEmployment,
   normalizeEntry,
   normalizeProject,
   normalizeWeek,
@@ -13,10 +14,18 @@ import type {
   SessionRequest,
   TripletexConfig,
   TripletexEmployee,
+  TripletexEmployment,
   TripletexEntry,
   TripletexProject,
   TripletexWeek,
 } from "./types";
+
+/** Property names that exist on the Tripletex v2 DTOs. weekYear is a query param, not a Week field. */
+export const EMPLOYEE_FIELDS = "id,firstName,lastName,isContact,isProxy,allowInformationRegistration";
+export const EMPLOYMENT_FIELDS = "employee(id),startDate,endDate,noEmploymentRelationship";
+export const PROJECT_FIELDS = "id,number,name,startDate,endDate,isClosed,isInternal,customer(id,name)";
+export const ENTRY_FIELDS = "id,date,hours,comment,employee(id,firstName,lastName),project(id,number,name),activity(name)";
+export const WEEK_FIELDS = "employee(id),year,week,completed";
 
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
@@ -77,8 +86,29 @@ async function getPage(
       Authorization: basicAuthHeader(config.username, sessionToken),
     },
   });
-  if (!response.ok) throw new Error(`Tripletex svarte med status ${response.status}.`);
+  if (!response.ok) throw new Error(await tripletexError(response));
   return response.json();
+}
+
+async function tripletexError(response: Response): Promise<string> {
+  let detail = "";
+  try {
+    const body = (await response.json()) as {
+      message?: unknown;
+      developerMessage?: unknown;
+      validationMessages?: { message?: unknown }[];
+    };
+    const parts = [body.developerMessage, body.message, body.validationMessages?.[0]?.message].filter(
+      (part): part is string => typeof part === "string" && part.trim().length > 0,
+    );
+    detail = parts[0]?.replace(/\s+/g, " ").slice(0, 240) ?? "";
+  } catch {
+    detail = "";
+  }
+  if (/token|password|authorization|bearer/i.test(detail)) detail = "";
+  return detail
+    ? `Tripletex svarte med status ${response.status}: ${detail}`
+    : `Tripletex svarte med status ${response.status}.`;
 }
 
 async function getAll(
@@ -102,6 +132,7 @@ async function getAll(
 
 export type TripletexApi = {
   employees: () => Promise<TripletexEmployee[]>;
+  employments: () => Promise<TripletexEmployment[]>;
   projects: () => Promise<TripletexProject[]>;
   entries: (dateFrom: string, dateTo: string) => Promise<TripletexEntry[]>;
   weeks: (employeeIds: number[], weekYear: string) => Promise<TripletexWeek[]>;
@@ -115,23 +146,21 @@ export async function createTripletexApi(
   const sessionToken = await openSession(config, fetchImpl);
   return {
     employees: async () => {
-      const rows = await getAll(
-        config,
-        sessionToken,
-        "/employee",
-        { fields: "id,firstName,lastName,isContact" },
-        fetchImpl,
-      );
+      const rows = await getAll(config, sessionToken, "/employee", { fields: EMPLOYEE_FIELDS }, fetchImpl);
       return staffEmployees(rows.map(normalizeEmployee).filter((row): row is TripletexEmployee => Boolean(row)));
     },
-    projects: async () => {
+    employments: async () => {
       const rows = await getAll(
         config,
         sessionToken,
-        "/project",
-        { fields: "id,number,name,startDate,endDate,isClosed,customer(id,name)" },
+        "/employee/employment",
+        { fields: EMPLOYMENT_FIELDS },
         fetchImpl,
       );
+      return rows.map(normalizeEmployment).filter((row): row is TripletexEmployment => Boolean(row));
+    },
+    projects: async () => {
+      const rows = await getAll(config, sessionToken, "/project", { fields: PROJECT_FIELDS }, fetchImpl);
       return rows.map(normalizeProject).filter((row): row is TripletexProject => Boolean(row));
     },
     entries: async (dateFrom, dateTo) => {
@@ -139,11 +168,7 @@ export async function createTripletexApi(
         config,
         sessionToken,
         "/timesheet/entry",
-        {
-          dateFrom,
-          dateTo,
-          fields: "id,date,hours,comment,employee(id,firstName,lastName),project(id,number,name),activity(name)",
-        },
+        { dateFrom, dateTo, fields: ENTRY_FIELDS },
         fetchImpl,
       );
       return rows.map(normalizeEntry).filter((row): row is TripletexEntry => Boolean(row));
@@ -157,7 +182,7 @@ export async function createTripletexApi(
         {
           employeeIds: employeeIds.join(","),
           weekYear,
-          fields: "employee(id),weekYear,completed",
+          fields: WEEK_FIELDS,
         },
         fetchImpl,
       );

@@ -67,8 +67,17 @@ export function classifyEntry(entry: TripletexEntry, links: SyncLinks): Classifi
   };
 }
 
-export function classifyEntries(entries: TripletexEntry[], links: SyncLinks): ClassifiedEntry[] {
-  return entries.map((entry) => classifyEntry(entry, links));
+export function classifyEntries(
+  entries: TripletexEntry[],
+  links: SyncLinks,
+  ignoredProjectIds: ReadonlySet<number> = new Set(),
+): ClassifiedEntry[] {
+  const kept: ClassifiedEntry[] = [];
+  for (const entry of entries) {
+    if (entry.projectId != null && ignoredProjectIds.has(entry.projectId)) continue;
+    kept.push(classifyEntry(entry, links));
+  }
+  return kept;
 }
 
 export type StoredEntry = ClassifiedEntry & { id: string };
@@ -114,4 +123,10 @@ export function mergeByExternalId(existing: StoredEntry[], incoming: ClassifiedE
 
 export function incompleteWeekCount(weeks: { completed: boolean }[]): number {
   return weeks.filter((week) => !week.completed).length;
+}
+
+export function publicSyncError(error: unknown): string {
+  const message = error instanceof Error ? error.message : "Ukjent feil fra Tripletex.";
+  if (/token|password|authorization|bearer/i.test(message)) return "Tripletex svarte med en feil.";
+  return message.replace(/\s+/g, " ").slice(0, 300);
 }

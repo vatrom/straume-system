@@ -1,11 +1,15 @@
 import Link from "next/link";
+import { restoreResource } from "@/lib/actions";
 import { loadInputs } from "@/lib/data";
 import { formatNorwegian, todayIso } from "@/lib/dates";
 import { formatHours } from "@/lib/format";
+import { INNLEID_LABEL } from "@/lib/planning";
 
 export default async function RessurserPage() {
   const { resources } = await loadInputs();
   const today = todayIso();
+  const visible = resources.filter((resource) => !resource.planExcluded);
+  const hidden = resources.filter((resource) => resource.planExcluded);
 
   return (
     <>
@@ -19,7 +23,7 @@ export default async function RessurserPage() {
         </Link>
       </header>
 
-      {resources.length === 0 ? (
+      {visible.length === 0 ? (
         <section className="card empty">Ingen ressurser ennå.</section>
       ) : (
         <div className="card table-wrap">
@@ -35,7 +39,7 @@ export default async function RessurserPage() {
               </tr>
             </thead>
             <tbody>
-              {resources.map((resource) => {
+              {visible.map((resource) => {
                 const upcoming = resource.absences
                   .map((absence) => ({
                     ...absence,
@@ -48,6 +52,7 @@ export default async function RessurserPage() {
                   <tr key={resource.id} className={resource.active ? undefined : "inactive"}>
                     <td>
                       <strong>{resource.name}</strong>
+                      {resource.innleid ? <div className="pill innleid">{INNLEID_LABEL}</div> : null}
                       {resource.isExample ? <div className="pill example">Eksempel</div> : null}
                     </td>
                     <td>{resource.role}</td>
@@ -70,6 +75,26 @@ export default async function RessurserPage() {
           </table>
         </div>
       )}
+
+      {hidden.length > 0 ? (
+        <section className="panel" style={{ marginTop: "0.9rem" }}>
+          <h2>Ikke med i planleggingen</h2>
+          <p className="meta">Disse er skjult. Tripletex oppretter dem ikke på nytt.</p>
+          {hidden.map((resource) => (
+            <div className="person" key={resource.id}>
+              <div>
+                <strong>{resource.name}</strong>
+                <div className="meta">{resource.role}</div>
+              </div>
+              <form action={restoreResource.bind(null, resource.id)}>
+                <button className="btn-secondary" type="submit">
+                  Ta med igjen
+                </button>
+              </form>
+            </div>
+          ))}
+        </section>
+      ) : null}
     </>
   );
 }
